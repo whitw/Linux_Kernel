@@ -2,7 +2,7 @@
 /*
  *  fs/pxt4/mballoc.h
  *
- *  Written by: Alpxt2 Tomas <alpxt2@clusterfs.com>
+ *  Written by: Alex Tomas <alex@clusterfs.com>
  *
  */
 #ifndef _PXT4_MBALLOC_H
@@ -19,14 +19,14 @@
 #include <linux/pagemap.h>
 #include <linux/seq_file.h>
 #include <linux/blkdev.h>
-#include <linux/mutpxt2.h>
+#include <linux/mutex.h>
 #include "pxt4_jbd3.h"
 #include "pxt4.h"
 
 /*
  */
 #ifdef CONFIG_PXT4_DEBUG
-pxt2tern ushort pxt4_mballoc_debug;
+extern ushort pxt4_mballoc_debug;
 
 #define mb_debug(n, fmt, ...)	                                        \
 do {									\
@@ -43,12 +43,12 @@ do {									\
 #define PXT4_MB_HISTORY_PREALLOC	2	/* preallocated blocks used */
 
 /*
- * How long mballoc can look for a best pxt2tent (in found pxt2tents)
+ * How long mballoc can look for a best extent (in found extents)
  */
 #define MB_DEFAULT_MAX_TO_SCAN		200
 
 /*
- * How long mballoc must look for a best pxt2tent
+ * How long mballoc must look for a best extent
  */
 #define MB_DEFAULT_MIN_TO_SCAN		10
 
@@ -85,14 +85,14 @@ struct pxt4_free_data {
 	/* this links the free block information from group_info */
 	struct rb_node			efd_node;
 
-	/* group which free block pxt2tent belongs */
+	/* group which free block extent belongs */
 	pxt4_group_t			efd_group;
 
-	/* free block pxt2tent */
+	/* free block extent */
 	pxt4_grpblk_t			efd_start_cluster;
 	pxt4_grpblk_t			efd_count;
 
-	/* transaction which freed this pxt2tent */
+	/* transaction which freed this extent */
 	tid_t				efd_tid;
 };
 
@@ -120,7 +120,7 @@ enum {
 	MB_GROUP_PA = 1
 };
 
-struct pxt4_free_pxt2tent {
+struct pxt4_free_extent {
 	pxt4_lblk_t fe_logical;
 	pxt4_grpblk_t fe_start;	/* In cluster units */
 	pxt4_group_t fe_group;
@@ -139,27 +139,27 @@ struct pxt4_free_pxt2tent {
 struct pxt4_locality_group {
 	/* for allocator */
 	/* to serialize allocates */
-	struct mutpxt2		lg_mutpxt2;
+	struct mutex		lg_mutex;
 	/* list of preallocations */
 	struct list_head	lg_prealloc_list[PREALLOC_TB_SIZE];
 	spinlock_t		lg_prealloc_lock;
 };
 
-struct pxt4_allocation_contpxt2t {
+struct pxt4_allocation_context {
 	struct inode *ac_inode;
 	struct super_block *ac_sb;
 
 	/* original request */
-	struct pxt4_free_pxt2tent ac_o_pxt2;
+	struct pxt4_free_extent ac_o_ex;
 
-	/* goal request (normalized ac_o_pxt2) */
-	struct pxt4_free_pxt2tent ac_g_pxt2;
+	/* goal request (normalized ac_o_ex) */
+	struct pxt4_free_extent ac_g_ex;
 
-	/* the best found pxt2tent */
-	struct pxt4_free_pxt2tent ac_b_pxt2;
+	/* the best found extent */
+	struct pxt4_free_extent ac_b_ex;
 
-	/* copy of the best found pxt2tent taken before preallocation efforts */
-	struct pxt4_free_pxt2tent ac_f_pxt2;
+	/* copy of the best found extent taken before preallocation efforts */
+	struct pxt4_free_extent ac_f_ex;
 
 	__u16 ac_groups_scanned;
 	__u16 ac_found;
@@ -193,10 +193,10 @@ struct pxt4_buddy {
 };
 
 static inline pxt4_fsblk_t pxt4_grp_offs_to_block(struct super_block *sb,
-					struct pxt4_free_pxt2tent *fpxt2)
+					struct pxt4_free_extent *fex)
 {
-	return pxt4_group_first_block_no(sb, fpxt2->fe_group) +
-		(fpxt2->fe_start << PXT4_SB(sb)->s_cluster_bits);
+	return pxt4_group_first_block_no(sb, fex->fe_group) +
+		(fex->fe_start << PXT4_SB(sb)->s_cluster_bits);
 }
 
 typedef int (*pxt4_mballoc_query_range_fn)(

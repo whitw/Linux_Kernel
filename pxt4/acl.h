@@ -57,9 +57,9 @@ static inline int pxt4_acl_count(size_t size)
 /* acl.c */
 struct posix_acl *pxt4_get_acl(struct inode *inode, int type);
 int pxt4_set_acl(struct inode *inode, struct posix_acl *acl, int type);
-pxt2tern int pxt4_init_acl(handle_t *, struct inode *, struct inode *);
+extern int pxt4_init_acl(handle_t *, struct inode *, struct inode *);
 
-#else  /* CONFIG_EXT4_FS_POSIX_ACL */
+#else  /* CONFIG_PXT4_FS_POSIX_ACL */
 #include <linux/sched.h>
 #define pxt4_get_acl NULL
 #define pxt4_set_acl NULL
@@ -69,5 +69,5 @@ pxt4_init_acl(handle_t *handle, struct inode *inode, struct inode *dir)
 {
 	return 0;
 }
-#endif  /* CONFIG_EXT4_FS_POSIX_ACL */
+#endif  /* CONFIG_PXT4_FS_POSIX_ACL */
 

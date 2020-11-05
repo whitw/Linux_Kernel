@@ -78,8 +78,8 @@ static void swap_inode_data(struct inode *inode1, struct inode *inode2)
 		(ei1->i_flags & ~PXT4_FL_SHOULD_SWAP);
 	ei2->i_flags = tmp | (ei2->i_flags & ~PXT4_FL_SHOULD_SWAP);
 	swap(ei1->i_disksize, ei2->i_disksize);
-	pxt4_es_remove_pxt2tent(inode1, 0, EXT_MAX_BLOCKS);
-	pxt4_es_remove_pxt2tent(inode2, 0, EXT_MAX_BLOCKS);
+	pxt4_es_remove_extent(inode1, 0, EXT_MAX_BLOCKS);
+	pxt4_es_remove_extent(inode2, 0, EXT_MAX_BLOCKS);
 
 	isize = i_size_read(inode1);
 	i_size_write(inode1, i_size_read(inode2));
@@ -153,7 +153,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 	if (err)
 		goto err_out;
 
-	/* Wait for all pxt2isting dio workers */
+	/* Wait for all existing dio workers */
 	inode_dio_wait(inode);
 	inode_dio_wait(inode_bl);
 
@@ -166,7 +166,7 @@ static long swap_inode_boot_loader(struct super_block *sb,
 		goto err_out;
 	}
 
-	/* Protect pxt2tent tree against block allocations via delalloc */
+	/* Protect extent tree against block allocations via delalloc */
 	pxt4_double_down_write_data_sem(inode, inode_bl);
 
 	if (inode_bl->i_nlink == 0) {
@@ -179,9 +179,9 @@ static long swap_inode_boot_loader(struct super_block *sb,
 		inode_set_iversion(inode_bl, 1);
 		i_size_write(inode_bl, 0);
 		inode_bl->i_mode = S_IFREG;
-		if (pxt4_has_feature_pxt2tents(sb)) {
+		if (pxt4_has_feature_extents(sb)) {
 			pxt4_set_inode_flag(inode_bl, PXT4_INODE_EXTENTS);
-			pxt4_pxt2t_tree_init(handle, inode_bl);
+			pxt4_ext_tree_init(handle, inode_bl);
 		} else
 			memset(ei_bl->i_data, 0, sizeof(ei_bl->i_data));
 	}
@@ -418,7 +418,7 @@ flags_err:
 	}
 	if (migrate) {
 		if (flags & PXT4_EXTENTS_FL)
-			err = pxt4_pxt2t_migrate(inode);
+			err = pxt4_ext_migrate(inode);
 		else
 			err = pxt4_ind_migrate(inode);
 	}
@@ -466,8 +466,8 @@ static int pxt4_ioctl_setproject(struct file *filp, __u32 projid)
 
 	raw_inode = pxt4_raw_inode(&iloc);
 	if (!PXT4_FITS_IN_INODE(raw_inode, ei, i_projid)) {
-		err = pxt4_pxt2pand_pxt2tra_isize(inode,
-					      PXT4_SB(sb)->s_want_pxt2tra_isize,
+		err = pxt4_expand_extra_isize(inode,
+					      PXT4_SB(sb)->s_want_extra_isize,
 					      &iloc);
 		if (err)
 			return err;
@@ -653,7 +653,7 @@ static int pxt4_ioc_getfsmap(struct super_block *sb,
 		       sizeof(head.fmh_keys[1].fmr_reserved)))
 		return -EINVAL;
 	/*
-	 * pxt4 doesn't report file pxt2tents at all, so the only valid
+	 * pxt4 doesn't report file extents at all, so the only valid
 	 * file offsets are the magic ones (all zeroes or all ones).
 	 */
 	if (head.fmh_keys[0].fmr_offset ||
@@ -769,13 +769,13 @@ static int fiemap_check_ranges(struct super_block *sb,
 }
 
 /* So that the fiemap access checks can't overflow on 32 bit machines. */
-#define FIEMAP_MAX_EXTENTS	(UINT_MAX / sizeof(struct fiemap_pxt2tent))
+#define FIEMAP_MAX_EXTENTS	(UINT_MAX / sizeof(struct fiemap_extent))
 
 static int pxt4_ioctl_get_es_cache(struct file *filp, unsigned long arg)
 {
 	struct fiemap fiemap;
 	struct fiemap __user *ufiemap = (struct fiemap __user *) arg;
-	struct fiemap_pxt2tent_info fieinfo = { 0, };
+	struct fiemap_extent_info fieinfo = { 0, };
 	struct inode *inode = file_inode(filp);
 	struct super_block *sb = inode->i_sb;
 	u64 len;
@@ -784,7 +784,7 @@ static int pxt4_ioctl_get_es_cache(struct file *filp, unsigned long arg)
 	if (copy_from_user(&fiemap, ufiemap, sizeof(fiemap)))
 		return -EFAULT;
 
-	if (fiemap.fm_pxt2tent_count > FIEMAP_MAX_EXTENTS)
+	if (fiemap.fm_extent_count > FIEMAP_MAX_EXTENTS)
 		return -EINVAL;
 
 	error = fiemap_check_ranges(sb, fiemap.fm_start, fiemap.fm_length,
@@ -793,12 +793,12 @@ static int pxt4_ioctl_get_es_cache(struct file *filp, unsigned long arg)
 		return error;
 
 	fieinfo.fi_flags = fiemap.fm_flags;
-	fieinfo.fi_pxt2tents_max = fiemap.fm_pxt2tent_count;
-	fieinfo.fi_pxt2tents_start = ufiemap->fm_pxt2tents;
+	fieinfo.fi_extents_max = fiemap.fm_extent_count;
+	fieinfo.fi_extents_start = ufiemap->fm_extents;
 
-	if (fiemap.fm_pxt2tent_count != 0 &&
-	    !access_ok(fieinfo.fi_pxt2tents_start,
-		       fieinfo.fi_pxt2tents_max * sizeof(struct fiemap_pxt2tent)))
+	if (fiemap.fm_extent_count != 0 &&
+	    !access_ok(fieinfo.fi_extents_start,
+		       fieinfo.fi_extents_max * sizeof(struct fiemap_extent)))
 		return -EFAULT;
 
 	if (fieinfo.fi_flags & FIEMAP_FLAG_SYNC)
@@ -806,7 +806,7 @@ static int pxt4_ioctl_get_es_cache(struct file *filp, unsigned long arg)
 
 	error = pxt4_get_es_cache(inode, &fieinfo, fiemap.fm_start, len);
 	fiemap.fm_flags = fieinfo.fi_flags;
-	fiemap.fm_mapped_pxt2tents = fieinfo.fi_pxt2tents_mapped;
+	fiemap.fm_mapped_extents = fieinfo.fi_extents_mapped;
 	if (copy_to_user(ufiemap, &fiemap, sizeof(fiemap)))
 		error = -EFAULT;
 
@@ -922,21 +922,21 @@ setversion_out:
 
 		if (get_user(n_blocks_count, (__u32 __user *)arg)) {
 			err = -EFAULT;
-			goto group_pxt2tend_out;
+			goto group_extend_out;
 		}
 
 		if (pxt4_has_feature_bigalloc(sb)) {
 			pxt4_msg(sb, KERN_ERR,
 				 "Online resizing not supported with bigalloc");
 			err = -EOPNOTSUPP;
-			goto group_pxt2tend_out;
+			goto group_extend_out;
 		}
 
 		err = mnt_want_write_file(filp);
 		if (err)
-			goto group_pxt2tend_out;
+			goto group_extend_out;
 
-		err = pxt4_group_pxt2tend(sb, PXT4_SB(sb)->s_es, n_blocks_count);
+		err = pxt4_group_extend(sb, PXT4_SB(sb)->s_es, n_blocks_count);
 		if (PXT4_SB(sb)->s_journal) {
 			jbd3_journal_lock_updates(PXT4_SB(sb)->s_journal);
 			err2 = jbd3_journal_flush(PXT4_SB(sb)->s_journal);
@@ -945,13 +945,13 @@ setversion_out:
 		if (err == 0)
 			err = err2;
 		mnt_drop_write_file(filp);
-group_pxt2tend_out:
+group_extend_out:
 		pxt4_resize_end(sb);
 		return err;
 	}
 
 	case PXT4_IOC_MOVE_EXT: {
-		struct move_pxt2tent me;
+		struct move_extent me;
 		struct fd donor;
 		int err;
 
@@ -960,7 +960,7 @@ group_pxt2tend_out:
 			return -EBADF;
 
 		if (copy_from_user(&me,
-			(struct move_pxt2tent __user *)arg, sizeof(me)))
+			(struct move_extent __user *)arg, sizeof(me)))
 			return -EFAULT;
 		me.moved_len = 0;
 
@@ -970,33 +970,33 @@ group_pxt2tend_out:
 
 		if (!(donor.file->f_mode & FMODE_WRITE)) {
 			err = -EBADF;
-			goto mpxt2t_out;
+			goto mext_out;
 		}
 
 		if (pxt4_has_feature_bigalloc(sb)) {
 			pxt4_msg(sb, KERN_ERR,
 				 "Online defrag not supported with bigalloc");
 			err = -EOPNOTSUPP;
-			goto mpxt2t_out;
+			goto mext_out;
 		} else if (IS_DAX(inode)) {
 			pxt4_msg(sb, KERN_ERR,
 				 "Online defrag not supported with DAX");
 			err = -EOPNOTSUPP;
-			goto mpxt2t_out;
+			goto mext_out;
 		}
 
 		err = mnt_want_write_file(filp);
 		if (err)
-			goto mpxt2t_out;
+			goto mext_out;
 
-		err = pxt4_move_pxt2tents(filp, donor.file, me.orig_start,
+		err = pxt4_move_extents(filp, donor.file, me.orig_start,
 					me.donor_start, me.len, &me.moved_len);
 		mnt_drop_write_file(filp);
 
-		if (copy_to_user((struct move_pxt2tent __user *)arg,
+		if (copy_to_user((struct move_extent __user *)arg,
 				 &me, sizeof(me)))
 			err = -EFAULT;
-mpxt2t_out:
+mext_out:
 		fdput(donor);
 		return err;
 	}
@@ -1021,13 +1021,13 @@ mpxt2t_out:
 		if (err)
 			return err;
 		/*
-		 * inode_mutpxt2 prevent write and truncate on the file.
+		 * inode_mutex prevent write and truncate on the file.
 		 * Read still goes through. We take i_data_sem in
-		 * pxt4_pxt2t_swap_inode_data before we switch the
+		 * pxt4_ext_swap_inode_data before we switch the
 		 * inode format to prevent read.
 		 */
 		inode_lock((inode));
-		err = pxt4_pxt2t_migrate(inode);
+		err = pxt4_ext_migrate(inode);
 		inode_unlock((inode));
 		mnt_drop_write_file(filp);
 		return err;
@@ -1133,7 +1133,7 @@ resizefs_out:
 		return 0;
 	}
 	case PXT4_IOC_PRECACHE_EXTENTS:
-		return pxt4_pxt2t_precache(inode);
+		return pxt4_ext_precache(inode);
 
 	case PXT4_IOC_SET_ENCRYPTION_POLICY:
 		if (!pxt4_has_feature_encrypt(sb))
@@ -1155,7 +1155,7 @@ resizefs_out:
 			handle = pxt4_journal_start_sb(sb, PXT4_HT_MISC, 1);
 			if (IS_ERR(handle)) {
 				err = PTR_ERR(handle);
-				goto pwsalt_err_pxt2it;
+				goto pwsalt_err_exit;
 			}
 			err = pxt4_journal_get_write_access(handle, sbi->s_sbh);
 			if (err)
@@ -1167,7 +1167,7 @@ resizefs_out:
 			err2 = pxt4_journal_stop(handle);
 			if (err2 && !err)
 				err = err2;
-		pwsalt_err_pxt2it:
+		pwsalt_err_exit:
 			mnt_drop_write_file(filp);
 			if (err)
 				return err;
@@ -1188,7 +1188,7 @@ resizefs_out:
 	case FS_IOC_GET_ENCRYPTION_POLICY_EX:
 		if (!pxt4_has_feature_encrypt(sb))
 			return -EOPNOTSUPP;
-		return fscrypt_ioctl_get_policy_pxt2(filp, (void __user *)arg);
+		return fscrypt_ioctl_get_policy_ex(filp, (void __user *)arg);
 
 	case FS_IOC_ADD_ENCRYPTION_KEY:
 		if (!pxt4_has_feature_encrypt(sb))

@@ -28,7 +28,7 @@
 #include <linux/backing-dev.h>
 #include <linux/parser.h>
 #include <linux/buffer_head.h>
-#include <linux/pxt2portfs.h>
+#include <linux/exportfs.h>
 #include <linux/vfs.h>
 #include <linux/random.h>
 #include <linux/mount.h>
@@ -48,7 +48,7 @@
 #include <linux/freezer.h>
 
 #include "pxt4.h"
-#include "pxt4_pxt2tents.h"	/* Needed for trace points definition */
+#include "pxt4_extents.h"	/* Needed for trace points definition */
 #include "pxt4_jbd3.h"
 #include "xattr.h"
 #include "acl.h"
@@ -59,7 +59,7 @@
 #include <trace/events/pxt4.h>
 
 static struct pxt4_lazy_init *pxt4_li_info;
-static struct mutpxt2 pxt4_li_mtx;
+static struct mutex pxt4_li_mtx;
 static struct ratelimit_state pxt4_mount_msg_ratelimit;
 
 static int pxt4_load_journal(struct super_block *, struct pxt4_super_block *,
@@ -77,8 +77,8 @@ static int pxt4_unfreeze(struct super_block *sb);
 static int pxt4_freeze(struct super_block *sb);
 static struct dentry *pxt4_mount(struct file_system_type *fs_type, int flags,
 		       const char *dev_name, void *data);
-static inline int pxt2t2_feature_set_ok(struct super_block *sb);
-static inline int pxt2t3_feature_set_ok(struct super_block *sb);
+static inline int pxt2_feature_set_ok(struct super_block *sb);
+static inline int ext3_feature_set_ok(struct super_block *sb);
 static int pxt4_feature_set_ok(struct super_block *sb, int readonly);
 static void pxt4_destroy_lazyinit_thread(void);
 static void pxt4_unregister_li_request(struct super_block *sb);
@@ -97,52 +97,52 @@ static struct inode *pxt4_get_journal_inode(struct super_block *sb,
  *   page lock -> i_data_sem (rw)
  *
  * buffered write path:
- * sb_start_write -> i_mutpxt2 -> mmap_sem
- * sb_start_write -> i_mutpxt2 -> transaction start -> page lock ->
+ * sb_start_write -> i_mutex -> mmap_sem
+ * sb_start_write -> i_mutex -> transaction start -> page lock ->
  *   i_data_sem (rw)
  *
  * truncate:
- * sb_start_write -> i_mutpxt2 -> i_mmap_sem (w) -> i_mmap_rwsem (w) -> page lock
- * sb_start_write -> i_mutpxt2 -> i_mmap_sem (w) -> transaction start ->
+ * sb_start_write -> i_mutex -> i_mmap_sem (w) -> i_mmap_rwsem (w) -> page lock
+ * sb_start_write -> i_mutex -> i_mmap_sem (w) -> transaction start ->
  *   i_data_sem (rw)
  *
  * direct IO:
- * sb_start_write -> i_mutpxt2 -> mmap_sem
- * sb_start_write -> i_mutpxt2 -> transaction start -> i_data_sem (rw)
+ * sb_start_write -> i_mutex -> mmap_sem
+ * sb_start_write -> i_mutex -> transaction start -> i_data_sem (rw)
  *
  * writepages:
  * transaction start -> page lock(s) -> i_data_sem (rw)
  */
 
 #if !defined(CONFIG_PXT2_FS) && !defined(CONFIG_PXT2_FS_MODULE) && defined(CONFIG_PXT4_USE_FOR_PXT2)
-static struct file_system_type pxt2t2_fs_type = {
+static struct file_system_type pxt2_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "pxt2t2",
+	.name		= "pxt2",
 	.mount		= pxt4_mount,
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
 };
-MODULE_ALIAS_FS("pxt2t2");
-MODULE_ALIAS("pxt2t2");
-#define IS_PXT2_SB(sb) ((sb)->s_bdev->bd_holder == &pxt2t2_fs_type)
+MODULE_ALIAS_FS("pxt2");
+MODULE_ALIAS("pxt2");
+#define IS_PXT2_SB(sb) ((sb)->s_bdev->bd_holder == &pxt2_fs_type)
 #else
 #define IS_PXT2_SB(sb) (0)
 #endif
 
 
-static struct file_system_type pxt2t3_fs_type = {
+static struct file_system_type ext3_fs_type = {
 	.owner		= THIS_MODULE,
-	.name		= "pxt2t3",
+	.name		= "ext3",
 	.mount		= pxt4_mount,
 	.kill_sb	= kill_block_super,
 	.fs_flags	= FS_REQUIRES_DEV,
 };
-MODULE_ALIAS_FS("pxt2t3");
-MODULE_ALIAS("pxt2t3");
-#define IS_EXT3_SB(sb) ((sb)->s_bdev->bd_holder == &pxt2t3_fs_type)
+MODULE_ALIAS_FS("ext3");
+MODULE_ALIAS("ext3");
+#define IS_EXT3_SB(sb) ((sb)->s_bdev->bd_holder == &ext3_fs_type)
 
 /*
- * This works like sb_bread() pxt2cept it uses ERR_PTR for error
+ * This works like sb_bread() except it uses ERR_PTR for error
  * returns.  Currently with sb_bread it's impossible to distinguish
  * between ENOMEM and EIO situations (since both result in a NULL
  * return.
@@ -397,7 +397,7 @@ static void save_error_info(struct super_block *sb, const char *func,
  * The del_gendisk() function uninitializes the disk-specific data
  * structures, including the bdi structure, without telling anyone
  * else.  Once this happens, any attempt to call mark_buffer_dirty()
- * (for pxt2ample, by pxt4_commit_super), will cause a kernel OOPS.
+ * (for example, by pxt4_commit_super), will cause a kernel OOPS.
  * This is a kludge to prevent these oops until we can put in a proper
  * hook in del_gendisk() to inform the VFS and file system layers.
  */
@@ -422,7 +422,7 @@ static void pxt4_journal_commit_callback(journal_t *journal, transaction_t *txn)
 
 	spin_lock(&sbi->s_md_lock);
 	while (!list_empty(&txn->t_private_list)) {
-		jce = list_entry(txn->t_private_list.npxt2t,
+		jce = list_entry(txn->t_private_list.next,
 				 struct pxt4_journal_cb_entry, jce_list);
 		list_del_init(&jce->jce_list);
 		spin_unlock(&sbi->s_md_lock);
@@ -441,7 +441,7 @@ static bool system_going_down(void)
 /* Deal with the reporting of failure conditions on a filesystem such as
  * inconsistencies detected or read IO failures.
  *
- * On pxt2t2, we can store the error state of the filesystem in the
+ * On pxt2, we can store the error state of the filesystem in the
  * superblock.  That is not possible on pxt4, because we may have other
  * write ordering constraints on the superblock which prevent us from
  * writing it out straight away; and given that the journal is about to
@@ -618,8 +618,8 @@ const char *pxt4_decode_error(struct super_block *sb, int errno,
 			errstr = "Readonly filesystem";
 		break;
 	default:
-		/* If the caller passed in an pxt2tra buffer for unknown
-		 * errors, tpxt2tualise them now.  Else we just return
+		/* If the caller passed in an extra buffer for unknown
+		 * errors, textualise them now.  Else we just return
 		 * NULL. */
 		if (nbuf) {
 			/* Check for truncated error codes... */
@@ -632,7 +632,7 @@ const char *pxt4_decode_error(struct super_block *sb, int errno,
 	return errstr;
 }
 
-/* __pxt4_std_error decodes pxt2pected errors from journaling functions
+/* __pxt4_std_error decodes expected errors from journaling functions
  * automatically and invokes the appropriate error response.  */
 
 void __pxt4_std_error(struct super_block *sb, const char *function,
@@ -879,7 +879,7 @@ void pxt4_update_dynamic_rev(struct super_block *sb)
 }
 
 /*
- * Open the pxt2ternal journal device
+ * Open the external journal device
  */
 static struct block_device *pxt4_blkdev_get(dev_t dev, struct super_block *sb)
 {
@@ -931,7 +931,7 @@ static void dump_orphan_list(struct super_block *sb, struct pxt4_sb_info *sbi)
 	list_for_each(l, &sbi->s_orphan) {
 		struct inode *inode = orphan_list_entry(l);
 		printk(KERN_ERR "  "
-		       "inode %s:%lu at %p: mode %o, nlink %d, npxt2t %d\n",
+		       "inode %s:%lu at %p: mode %o, nlink %d, next %d\n",
 		       inode->i_sb->s_id, inode->i_ino, inode,
 		       inode->i_mode, inode->i_nlink,
 		       NEXT_ORPHAN(inode));
@@ -972,7 +972,7 @@ static void pxt4_put_super(struct super_block *sb)
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	struct pxt4_super_block *es = sbi->s_es;
 	struct buffer_head **group_desc;
-	struct flpxt2_groups **flpxt2_groups;
+	struct flex_groups **flex_groups;
 	int aborted = 0;
 	int i, err;
 
@@ -994,7 +994,7 @@ static void pxt4_put_super(struct super_block *sb)
 	del_timer_sync(&sbi->s_err_report);
 	pxt4_release_system_zone(sb);
 	pxt4_mb_release(sb);
-	pxt4_pxt2t_release(sb);
+	pxt4_ext_release(sb);
 
 	if (!sb_rdonly(sb) && !aborted) {
 		pxt4_clear_feature_journal_needs_recovery(sb);
@@ -1008,11 +1008,11 @@ static void pxt4_put_super(struct super_block *sb)
 	for (i = 0; i < sbi->s_gdb_count; i++)
 		brelse(group_desc[i]);
 	kvfree(group_desc);
-	flpxt2_groups = rcu_dereference(sbi->s_flpxt2_groups);
-	if (flpxt2_groups) {
-		for (i = 0; i < sbi->s_flpxt2_groups_allocated; i++)
-			kvfree(flpxt2_groups[i]);
-		kvfree(flpxt2_groups);
+	flex_groups = rcu_dereference(sbi->s_flex_groups);
+	if (flex_groups) {
+		for (i = 0; i < sbi->s_flex_groups_allocated; i++)
+			kvfree(flex_groups[i]);
+		kvfree(flex_groups);
 	}
 	rcu_read_unlock();
 	percpu_counter_destroy(&sbi->s_freeclusters_counter);
@@ -1137,7 +1137,7 @@ static void pxt4_destroy_inode(struct inode *inode)
 		pxt4_msg(inode->i_sb, KERN_ERR,
 			 "Inode %lu (%p): orphan list check failed!",
 			 inode->i_ino, PXT4_I(inode));
-		print_hpxt2_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 16, 4,
+		print_hex_dump(KERN_INFO, "", DUMP_PREFIX_ADDRESS, 16, 4,
 				PXT4_I(inode), sizeof(struct pxt4_inode_info),
 				true);
 		dump_stack();
@@ -1184,7 +1184,7 @@ void pxt4_clear_inode(struct inode *inode)
 	invalidate_inode_buffers(inode);
 	clear_inode(inode);
 	pxt4_discard_preallocations(inode);
-	pxt4_es_remove_pxt2tent(inode, 0, EXT_MAX_BLOCKS);
+	pxt4_es_remove_extent(inode, 0, EXT_MAX_BLOCKS);
 	dquot_drop(inode);
 	if (PXT4_I(inode)->jinode) {
 		jbd3_journal_release_jbd_inode(PXT4_JOURNAL(inode),
@@ -1261,21 +1261,21 @@ static int bdev_try_to_free_page(struct super_block *sb, struct page *page,
 }
 
 #ifdef CONFIG_FS_ENCRYPTION
-static int pxt4_get_contpxt2t(struct inode *inode, void *ctx, size_t len)
+static int pxt4_get_context(struct inode *inode, void *ctx, size_t len)
 {
 	return pxt4_xattr_get(inode, PXT4_XATTR_INDEX_ENCRYPTION,
 				 PXT4_XATTR_NAME_ENCRYPTION_CONTEXT, ctx, len);
 }
 
-static int pxt4_set_contpxt2t(struct inode *inode, const void *ctx, size_t len,
+static int pxt4_set_context(struct inode *inode, const void *ctx, size_t len,
 							void *fs_data)
 {
 	handle_t *handle = fs_data;
 	int res, res2, credits, retries = 0;
 
 	/*
-	 * Encrypting the root directory is not allowed because e2fsck pxt2pects
-	 * lost+found to pxt2ist and be unencrypted, and encrypting the root
+	 * Encrypting the root directory is not allowed because e2fsck expects
+	 * lost+found to exist and be unencrypted, and encrypting the root
 	 * directory would imply encrypting the lost+found directory as well as
 	 * the filename "lost+found" itself.
 	 */
@@ -1290,10 +1290,10 @@ static int pxt4_set_contpxt2t(struct inode *inode, const void *ctx, size_t len,
 		return res;
 
 	/*
-	 * If a journal handle was specified, then the encryption contpxt2t is
+	 * If a journal handle was specified, then the encryption context is
 	 * being set on a new inode via inheritance and is part of a larger
-	 * transaction to create the inode.  Otherwise the encryption contpxt2t is
-	 * being set on an pxt2isting inode in its own transaction.  Only in the
+	 * transaction to create the inode.  Otherwise the encryption context is
+	 * being set on an existing inode in its own transaction.  Only in the
 	 * latter case should the "retry on ENOSPC" logic be used.
 	 */
 
@@ -1351,16 +1351,16 @@ retry:
 	return res;
 }
 
-static bool pxt4_dummy_contpxt2t(struct inode *inode)
+static bool pxt4_dummy_context(struct inode *inode)
 {
 	return DUMMY_ENCRYPTION_ENABLED(PXT4_SB(inode->i_sb));
 }
 
 static const struct fscrypt_operations pxt4_cryptops = {
 	.key_prefix		= "pxt4:",
-	.get_contpxt2t		= pxt4_get_contpxt2t,
-	.set_contpxt2t		= pxt4_set_contpxt2t,
-	.dummy_contpxt2t		= pxt4_dummy_contpxt2t,
+	.get_context		= pxt4_get_context,
+	.set_context		= pxt4_set_context,
+	.dummy_context		= pxt4_dummy_context,
 	.empty_dir		= pxt4_empty_dir,
 	.max_namelen		= PXT4_NAME_LEN,
 };
@@ -1385,7 +1385,7 @@ static ssize_t pxt4_quota_write(struct super_block *sb, int type,
 static int pxt4_quota_enable(struct super_block *sb, int type, int format_id,
 			     unsigned int flags);
 static int pxt4_enable_quotas(struct super_block *sb);
-static int pxt4_get_npxt2t_id(struct super_block *sb, struct kqid *qid);
+static int pxt4_get_next_id(struct super_block *sb, struct kqid *qid);
 
 static struct dquot **pxt4_get_dquots(struct inode *inode)
 {
@@ -1403,7 +1403,7 @@ static const struct dquot_operations pxt4_quota_operations = {
 	.destroy_dquot		= dquot_destroy,
 	.get_projid		= pxt4_get_projid,
 	.get_inode_usage	= pxt4_get_inode_usage,
-	.get_npxt2t_id		= pxt4_get_npxt2t_id,
+	.get_next_id		= pxt4_get_next_id,
 };
 
 static const struct quotactl_ops pxt4_qctl_operations = {
@@ -1414,7 +1414,7 @@ static const struct quotactl_ops pxt4_qctl_operations = {
 	.set_info	= dquot_set_dqinfo,
 	.get_dqblk	= dquot_get_dqblk,
 	.set_dqblk	= dquot_set_dqblk,
-	.get_npxt2tdqblk	= dquot_get_npxt2t_dqblk,
+	.get_nextdqblk	= dquot_get_next_dqblk,
 };
 #endif
 
@@ -1441,7 +1441,7 @@ static const struct super_operations pxt4_sops = {
 	.bdev_try_to_free_page = bdev_try_to_free_page,
 };
 
-static const struct pxt2port_operations pxt4_pxt2port_ops = {
+static const struct export_operations pxt4_export_ops = {
 	.fh_to_dentry = pxt4_fh_to_dentry,
 	.fh_to_parent = pxt4_fh_to_parent,
 	.get_parent = pxt4_get_parent,
@@ -1464,7 +1464,7 @@ enum {
 	Opt_usrquota, Opt_grpquota, Opt_prjquota, Opt_i_version, Opt_dax,
 	Opt_stripe, Opt_delalloc, Opt_nodelalloc, Opt_warn_on_error,
 	Opt_nowarn_on_error, Opt_mblk_io_submit,
-	Opt_lazytime, Opt_nolazytime, Opt_debug_want_pxt2tra_isize,
+	Opt_lazytime, Opt_nolazytime, Opt_debug_want_extra_isize,
 	Opt_nomblk_io_submit, Opt_block_validity, Opt_noblock_validity,
 	Opt_inode_readahead_blks, Opt_journal_ioprio,
 	Opt_dioread_nolock, Opt_dioread_lock,
@@ -1534,7 +1534,7 @@ static const match_table_t tokens = {
 	{Opt_nowarn_on_error, "nowarn_on_error"},
 	{Opt_lazytime, "lazytime"},
 	{Opt_nolazytime, "nolazytime"},
-	{Opt_debug_want_pxt2tra_isize, "debug_want_pxt2tra_isize=%u"},
+	{Opt_debug_want_extra_isize, "debug_want_extra_isize=%u"},
 	{Opt_nodelalloc, "nodelalloc"},
 	{Opt_removed, "mblk_io_submit"},
 	{Opt_removed, "nomblk_io_submit"},
@@ -1556,11 +1556,11 @@ static const match_table_t tokens = {
 	{Opt_test_dummy_encryption, "test_dummy_encryption"},
 	{Opt_nombcache, "nombcache"},
 	{Opt_nombcache, "no_mbcache"},	/* for backward compatibility */
-	{Opt_removed, "check=none"},	/* mount option from pxt2t2/3 */
-	{Opt_removed, "nocheck"},	/* mount option from pxt2t2/3 */
-	{Opt_removed, "reservation"},	/* mount option from pxt2t2/3 */
-	{Opt_removed, "noreservation"}, /* mount option from pxt2t2/3 */
-	{Opt_removed, "journal=%u"},	/* mount option from pxt2t2/3 */
+	{Opt_removed, "check=none"},	/* mount option from pxt2/3 */
+	{Opt_removed, "nocheck"},	/* mount option from pxt2/3 */
+	{Opt_removed, "reservation"},	/* mount option from pxt2/3 */
+	{Opt_removed, "noreservation"}, /* mount option from pxt2/3 */
+	{Opt_removed, "journal=%u"},	/* mount option from pxt2/3 */
 	{Opt_err, NULL},
 };
 
@@ -1745,7 +1745,7 @@ static const struct mount_opts {
 #endif
 	{Opt_nouid32, PXT4_MOUNT_NO_UID32, MOPT_SET},
 	{Opt_debug, PXT4_MOUNT_DEBUG, MOPT_SET},
-	{Opt_debug_want_pxt2tra_isize, 0, MOPT_GTE0},
+	{Opt_debug_want_extra_isize, 0, MOPT_GTE0},
 	{Opt_quota, PXT4_MOUNT_QUOTA | PXT4_MOUNT_USRQUOTA, MOPT_SET | MOPT_Q},
 	{Opt_usrquota, PXT4_MOUNT_QUOTA | PXT4_MOUNT_USRQUOTA,
 							MOPT_SET | MOPT_Q},
@@ -1855,12 +1855,12 @@ static int handle_mount_opt(struct super_block *sb, char *opt, int token,
 
 	if ((m->flags & MOPT_NO_PXT2) && IS_PXT2_SB(sb)) {
 		pxt4_msg(sb, KERN_ERR,
-			 "Mount option \"%s\" incompatible with pxt2t2", opt);
+			 "Mount option \"%s\" incompatible with pxt2", opt);
 		return -1;
 	}
 	if ((m->flags & MOPT_NO_EXT3) && IS_EXT3_SB(sb)) {
 		pxt4_msg(sb, KERN_ERR,
-			 "Mount option \"%s\" incompatible with pxt2t3", opt);
+			 "Mount option \"%s\" incompatible with ext3", opt);
 		return -1;
 	}
 
@@ -1897,15 +1897,15 @@ static int handle_mount_opt(struct super_block *sb, char *opt, int token,
 			return -1;
 		}
 		sbi->s_commit_interval = HZ * arg;
-	} else if (token == Opt_debug_want_pxt2tra_isize) {
+	} else if (token == Opt_debug_want_extra_isize) {
 		if ((arg & 1) ||
 		    (arg < 4) ||
 		    (arg > (sbi->s_inode_size - PXT4_GOOD_OLD_INODE_SIZE))) {
 			pxt4_msg(sb, KERN_ERR,
-				 "Invalid want_pxt2tra_isize %d", arg);
+				 "Invalid want_extra_isize %d", arg);
 			return -1;
 		}
-		sbi->s_want_pxt2tra_isize = arg;
+		sbi->s_want_extra_isize = arg;
 	} else if (token == Opt_max_batch_time) {
 		sbi->s_max_batch_time = arg;
 	} else if (token == Opt_min_batch_time) {
@@ -2351,76 +2351,76 @@ done:
 	return err;
 }
 
-int pxt4_alloc_flpxt2_bg_array(struct super_block *sb, pxt4_group_t ngroup)
+int pxt4_alloc_flex_bg_array(struct super_block *sb, pxt4_group_t ngroup)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
-	struct flpxt2_groups **old_groups, **new_groups;
+	struct flex_groups **old_groups, **new_groups;
 	int size, i, j;
 
-	if (!sbi->s_log_groups_per_flpxt2)
+	if (!sbi->s_log_groups_per_flex)
 		return 0;
 
-	size = pxt4_flpxt2_group(sbi, ngroup - 1) + 1;
-	if (size <= sbi->s_flpxt2_groups_allocated)
+	size = pxt4_flex_group(sbi, ngroup - 1) + 1;
+	if (size <= sbi->s_flex_groups_allocated)
 		return 0;
 
 	new_groups = kvzalloc(roundup_pow_of_two(size *
-			      sizeof(*sbi->s_flpxt2_groups)), GFP_KERNEL);
+			      sizeof(*sbi->s_flex_groups)), GFP_KERNEL);
 	if (!new_groups) {
 		pxt4_msg(sb, KERN_ERR,
-			 "not enough memory for %d flpxt2 group pointers", size);
+			 "not enough memory for %d flex group pointers", size);
 		return -ENOMEM;
 	}
-	for (i = sbi->s_flpxt2_groups_allocated; i < size; i++) {
+	for (i = sbi->s_flex_groups_allocated; i < size; i++) {
 		new_groups[i] = kvzalloc(roundup_pow_of_two(
-					 sizeof(struct flpxt2_groups)),
+					 sizeof(struct flex_groups)),
 					 GFP_KERNEL);
 		if (!new_groups[i]) {
-			for (j = sbi->s_flpxt2_groups_allocated; j < i; j++)
+			for (j = sbi->s_flex_groups_allocated; j < i; j++)
 				kvfree(new_groups[j]);
 			kvfree(new_groups);
 			pxt4_msg(sb, KERN_ERR,
-				 "not enough memory for %d flpxt2 groups", size);
+				 "not enough memory for %d flex groups", size);
 			return -ENOMEM;
 		}
 	}
 	rcu_read_lock();
-	old_groups = rcu_dereference(sbi->s_flpxt2_groups);
+	old_groups = rcu_dereference(sbi->s_flex_groups);
 	if (old_groups)
 		memcpy(new_groups, old_groups,
-		       (sbi->s_flpxt2_groups_allocated *
-			sizeof(struct flpxt2_groups *)));
+		       (sbi->s_flex_groups_allocated *
+			sizeof(struct flex_groups *)));
 	rcu_read_unlock();
-	rcu_assign_pointer(sbi->s_flpxt2_groups, new_groups);
-	sbi->s_flpxt2_groups_allocated = size;
+	rcu_assign_pointer(sbi->s_flex_groups, new_groups);
+	sbi->s_flex_groups_allocated = size;
 	if (old_groups)
 		pxt4_kvfree_array_rcu(old_groups);
 	return 0;
 }
 
-static int pxt4_fill_flpxt2_info(struct super_block *sb)
+static int pxt4_fill_flex_info(struct super_block *sb)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	struct pxt4_group_desc *gdp = NULL;
-	struct flpxt2_groups *fg;
-	pxt4_group_t flpxt2_group;
+	struct flex_groups *fg;
+	pxt4_group_t flex_group;
 	int i, err;
 
-	sbi->s_log_groups_per_flpxt2 = sbi->s_es->s_log_groups_per_flpxt2;
-	if (sbi->s_log_groups_per_flpxt2 < 1 || sbi->s_log_groups_per_flpxt2 > 31) {
-		sbi->s_log_groups_per_flpxt2 = 0;
+	sbi->s_log_groups_per_flex = sbi->s_es->s_log_groups_per_flex;
+	if (sbi->s_log_groups_per_flex < 1 || sbi->s_log_groups_per_flex > 31) {
+		sbi->s_log_groups_per_flex = 0;
 		return 1;
 	}
 
-	err = pxt4_alloc_flpxt2_bg_array(sb, sbi->s_groups_count);
+	err = pxt4_alloc_flex_bg_array(sb, sbi->s_groups_count);
 	if (err)
 		goto failed;
 
 	for (i = 0; i < sbi->s_groups_count; i++) {
 		gdp = pxt4_get_group_desc(sb, i, NULL);
 
-		flpxt2_group = pxt4_flpxt2_group(sbi, i);
-		fg = sbi_array_rcu_deref(sbi, s_flpxt2_groups, flpxt2_group);
+		flex_group = pxt4_flex_group(sbi, i);
+		fg = sbi_array_rcu_deref(sbi, s_flex_groups, flex_group);
 		atomic_add(pxt4_free_inodes_count(sb, gdp), &fg->free_inodes);
 		atomic64_add(pxt4_free_group_clusters(sb, gdp),
 			     &fg->free_clusters);
@@ -2508,18 +2508,18 @@ static int pxt4_check_descriptors(struct super_block *sb,
 	pxt4_fsblk_t block_bitmap;
 	pxt4_fsblk_t inode_bitmap;
 	pxt4_fsblk_t inode_table;
-	int flpxt2bg_flag = 0;
+	int flexbg_flag = 0;
 	pxt4_group_t i, grp = sbi->s_groups_count;
 
-	if (pxt4_has_feature_flpxt2_bg(sb))
-		flpxt2bg_flag = 1;
+	if (pxt4_has_feature_flex_bg(sb))
+		flexbg_flag = 1;
 
 	pxt4_debug("Checking group descriptors");
 
 	for (i = 0; i < sbi->s_groups_count; i++) {
 		struct pxt4_group_desc *gdp = pxt4_get_group_desc(sb, i, NULL);
 
-		if (i == sbi->s_groups_count - 1 || flpxt2bg_flag)
+		if (i == sbi->s_groups_count - 1 || flexbg_flag)
 			last_block = pxt4_blocks_count(sbi->s_es) - 1;
 		else
 			last_block = first_block +
@@ -2608,7 +2608,7 @@ static int pxt4_check_descriptors(struct super_block *sb,
 			}
 		}
 		pxt4_unlock_group(sb, i);
-		if (!flpxt2bg_flag)
+		if (!flexbg_flag)
 			first_block += PXT4_BLOCKS_PER_GROUP(sb);
 	}
 	if (NULL != first_not_zeroed)
@@ -2776,14 +2776,14 @@ static void pxt4_orphan_cleanup(struct super_block *sb,
 }
 
 /*
- * Maximal pxt2tent format file size.
+ * Maximal extent format file size.
  * Resulting logical blkno at s_maxbytes must fit in our on-disk
- * pxt2tent format containers, within a sector_t, and within i_blocks
+ * extent format containers, within a sector_t, and within i_blocks
  * in the vfs.  pxt4 inode has 48 bits of i_block in fsblock units,
  * so that won't be a limiting factor.
  *
- * However there is other limiting factor. We do store pxt2tents in the form
- * of starting block and length, hence the resulting length of the pxt2tent
+ * However there is other limiting factor. We do store extents in the form
+ * of starting block and length, hence the resulting length of the extent
  * covering maximum file size must fit into on-disk format containers as
  * well. Given that length is always by 1 unit bigger than max unit (because
  * we count 0 as well) we have to lower the s_maxbytes by one fs block.
@@ -2806,8 +2806,8 @@ static loff_t pxt4_max_size(int blkbits, int has_huge_files)
 	}
 
 	/*
-	 * 32-bit pxt2tent-start container, ee_block. We lower the maxbytes
-	 * by one fs block, so ee_len can cover the pxt2tent of maximum file
+	 * 32-bit extent-start container, ee_block. We lower the maxbytes
+	 * by one fs block, so ee_len can cover the extent of maximum file
 	 * size
 	 */
 	res = (1LL << 32) - 1;
@@ -2832,7 +2832,7 @@ static loff_t pxt4_max_bitmap_size(int bits, int has_huge_files)
 	loff_t upper_limit;
 	/* This is calculated to be the largest file size for a dense, block
 	 * mapped file such that the file's total number of 512-byte sectors,
-	 * including data and all indirect blocks, does not pxt2ceed (2^48 - 1).
+	 * including data and all indirect blocks, does not exceed (2^48 - 1).
 	 *
 	 * __u32 i_blocks_lo and _u16 i_blocks_high represent the total
 	 * number of 512-byte sectors of the file.
@@ -2991,10 +2991,10 @@ static int pxt4_feature_set_ok(struct super_block *sb, int readonly)
 				~PXT4_FEATURE_RO_COMPAT_SUPP));
 		return 0;
 	}
-	if (pxt4_has_feature_bigalloc(sb) && !pxt4_has_feature_pxt2tents(sb)) {
+	if (pxt4_has_feature_bigalloc(sb) && !pxt4_has_feature_extents(sb)) {
 		pxt4_msg(sb, KERN_ERR,
 			 "Can't support bigalloc feature without "
-			 "pxt2tents feature\n");
+			 "extents feature\n");
 		return 0;
 	}
 
@@ -3056,7 +3056,7 @@ static void print_daily_error_info(struct timer_list *t)
 	mod_timer(&sbi->s_err_report, jiffies + 24*60*60*HZ);  /* Once a day */
 }
 
-/* Find npxt2t suitable group and run pxt4_init_inode_table */
+/* Find next suitable group and run pxt4_init_inode_table */
 static int pxt4_run_li_request(struct pxt4_li_request *elr)
 {
 	struct pxt4_group_desc *gdp = NULL;
@@ -3068,7 +3068,7 @@ static int pxt4_run_li_request(struct pxt4_li_request *elr)
 	sb = elr->lr_super;
 	ngroups = PXT4_SB(sb)->s_groups_count;
 
-	for (group = elr->lr_npxt2t_group; group < ngroups; group++) {
+	for (group = elr->lr_next_group; group < ngroups; group++) {
 		gdp = pxt4_get_group_desc(sb, group, NULL);
 		if (!gdp) {
 			ret = 1;
@@ -3091,8 +3091,8 @@ static int pxt4_run_li_request(struct pxt4_li_request *elr)
 				  elr->lr_sbi->s_li_wait_mult;
 			elr->lr_timeout = timeout;
 		}
-		elr->lr_npxt2t_sched = jiffies + elr->lr_timeout;
-		elr->lr_npxt2t_group = group + 1;
+		elr->lr_next_sched = jiffies + elr->lr_timeout;
+		elr->lr_next_group = group + 1;
 	}
 	return ret;
 }
@@ -3117,46 +3117,46 @@ static void pxt4_remove_li_request(struct pxt4_li_request *elr)
 
 static void pxt4_unregister_li_request(struct super_block *sb)
 {
-	mutpxt2_lock(&pxt4_li_mtx);
+	mutex_lock(&pxt4_li_mtx);
 	if (!pxt4_li_info) {
-		mutpxt2_unlock(&pxt4_li_mtx);
+		mutex_unlock(&pxt4_li_mtx);
 		return;
 	}
 
-	mutpxt2_lock(&pxt4_li_info->li_list_mtx);
+	mutex_lock(&pxt4_li_info->li_list_mtx);
 	pxt4_remove_li_request(PXT4_SB(sb)->s_li_request);
-	mutpxt2_unlock(&pxt4_li_info->li_list_mtx);
-	mutpxt2_unlock(&pxt4_li_mtx);
+	mutex_unlock(&pxt4_li_info->li_list_mtx);
+	mutex_unlock(&pxt4_li_mtx);
 }
 
 static struct task_struct *pxt4_lazyinit_task;
 
 /*
  * This is the function where pxt4lazyinit thread lives. It walks
- * through the request list searching for npxt2t scheduled filesystem.
+ * through the request list searching for next scheduled filesystem.
  * When such a fs is found, run the lazy initialization request
  * (pxt4_rn_li_request) and keep track of the time spend in this
- * function. Based on that time we compute npxt2t schedule time of
+ * function. Based on that time we compute next schedule time of
  * the request. When walking through the list is complete, compute
- * npxt2t waking time and put itself into sleep.
+ * next waking time and put itself into sleep.
  */
 static int pxt4_lazyinit_thread(void *arg)
 {
 	struct pxt4_lazy_init *eli = (struct pxt4_lazy_init *)arg;
 	struct list_head *pos, *n;
 	struct pxt4_li_request *elr;
-	unsigned long npxt2t_wakeup, cur;
+	unsigned long next_wakeup, cur;
 
 	BUG_ON(NULL == eli);
 
 cont_thread:
 	while (true) {
-		npxt2t_wakeup = MAX_JIFFY_OFFSET;
+		next_wakeup = MAX_JIFFY_OFFSET;
 
-		mutpxt2_lock(&eli->li_list_mtx);
+		mutex_lock(&eli->li_list_mtx);
 		if (list_empty(&eli->li_request_list)) {
-			mutpxt2_unlock(&eli->li_list_mtx);
-			goto pxt2it_thread;
+			mutex_unlock(&eli->li_list_mtx);
+			goto exit_thread;
 		}
 		list_for_each_safe(pos, n, &eli->li_request_list) {
 			int err = 0;
@@ -3164,9 +3164,9 @@ cont_thread:
 			elr = list_entry(pos, struct pxt4_li_request,
 					 lr_request);
 
-			if (time_before(jiffies, elr->lr_npxt2t_sched)) {
-				if (time_before(elr->lr_npxt2t_sched, npxt2t_wakeup))
-					npxt2t_wakeup = elr->lr_npxt2t_sched;
+			if (time_before(jiffies, elr->lr_next_sched)) {
+				if (time_before(elr->lr_next_sched, next_wakeup))
+					next_wakeup = elr->lr_next_sched;
 				continue;
 			}
 			if (down_read_trylock(&elr->lr_super->s_umount)) {
@@ -3177,11 +3177,11 @@ cont_thread:
 					 * be removed from the list, it is
 					 * now safe to drop li_list_mtx
 					 */
-					mutpxt2_unlock(&eli->li_list_mtx);
+					mutex_unlock(&eli->li_list_mtx);
 					err = pxt4_run_li_request(elr);
 					sb_end_write(elr->lr_super);
-					mutpxt2_lock(&eli->li_list_mtx);
-					n = pos->npxt2t;
+					mutex_lock(&eli->li_list_mtx);
+					n = pos->next;
 				}
 				up_read((&elr->lr_super->s_umount));
 			}
@@ -3191,33 +3191,33 @@ cont_thread:
 				continue;
 			}
 			if (!progress) {
-				elr->lr_npxt2t_sched = jiffies +
+				elr->lr_next_sched = jiffies +
 					(prandom_u32()
 					 % (PXT4_DEF_LI_MAX_START_DELAY * HZ));
 			}
-			if (time_before(elr->lr_npxt2t_sched, npxt2t_wakeup))
-				npxt2t_wakeup = elr->lr_npxt2t_sched;
+			if (time_before(elr->lr_next_sched, next_wakeup))
+				next_wakeup = elr->lr_next_sched;
 		}
-		mutpxt2_unlock(&eli->li_list_mtx);
+		mutex_unlock(&eli->li_list_mtx);
 
 		try_to_freeze();
 
 		cur = jiffies;
-		if ((time_after_eq(cur, npxt2t_wakeup)) ||
-		    (MAX_JIFFY_OFFSET == npxt2t_wakeup)) {
+		if ((time_after_eq(cur, next_wakeup)) ||
+		    (MAX_JIFFY_OFFSET == next_wakeup)) {
 			cond_resched();
 			continue;
 		}
 
-		schedule_timeout_interruptible(npxt2t_wakeup - cur);
+		schedule_timeout_interruptible(next_wakeup - cur);
 
 		if (kthread_should_stop()) {
 			pxt4_clear_request_list();
-			goto pxt2it_thread;
+			goto exit_thread;
 		}
 	}
 
-pxt2it_thread:
+exit_thread:
 	/*
 	 * It looks like the request list is empty, but we need
 	 * to check it under the li_list_mtx lock, to prevent any
@@ -3226,17 +3226,17 @@ pxt2it_thread:
 	 * this point another pxt4 filesystem could be registering
 	 * new one.
 	 */
-	mutpxt2_lock(&pxt4_li_mtx);
-	mutpxt2_lock(&eli->li_list_mtx);
+	mutex_lock(&pxt4_li_mtx);
+	mutex_lock(&eli->li_list_mtx);
 	if (!list_empty(&eli->li_request_list)) {
-		mutpxt2_unlock(&eli->li_list_mtx);
-		mutpxt2_unlock(&pxt4_li_mtx);
+		mutex_unlock(&eli->li_list_mtx);
+		mutex_unlock(&pxt4_li_mtx);
 		goto cont_thread;
 	}
-	mutpxt2_unlock(&eli->li_list_mtx);
+	mutex_unlock(&eli->li_list_mtx);
 	kfree(pxt4_li_info);
 	pxt4_li_info = NULL;
-	mutpxt2_unlock(&pxt4_li_mtx);
+	mutex_unlock(&pxt4_li_mtx);
 
 	return 0;
 }
@@ -3246,13 +3246,13 @@ static void pxt4_clear_request_list(void)
 	struct list_head *pos, *n;
 	struct pxt4_li_request *elr;
 
-	mutpxt2_lock(&pxt4_li_info->li_list_mtx);
+	mutex_lock(&pxt4_li_info->li_list_mtx);
 	list_for_each_safe(pos, n, &pxt4_li_info->li_request_list) {
 		elr = list_entry(pos, struct pxt4_li_request,
 				 lr_request);
 		pxt4_remove_li_request(elr);
 	}
-	mutpxt2_unlock(&pxt4_li_info->li_list_mtx);
+	mutex_unlock(&pxt4_li_info->li_list_mtx);
 }
 
 static int pxt4_run_lazyinit_thread(void)
@@ -3308,7 +3308,7 @@ static int pxt4_li_info_new(void)
 		return -ENOMEM;
 
 	INIT_LIST_HEAD(&eli->li_request_list);
-	mutpxt2_init(&eli->li_list_mtx);
+	mutex_init(&eli->li_list_mtx);
 
 	eli->li_state |= PXT4_LAZYINIT_QUIT;
 
@@ -3329,14 +3329,14 @@ static struct pxt4_li_request *pxt4_li_request_new(struct super_block *sb,
 
 	elr->lr_super = sb;
 	elr->lr_sbi = sbi;
-	elr->lr_npxt2t_group = start;
+	elr->lr_next_group = start;
 
 	/*
 	 * Randomize first schedule time of the request to
 	 * spread the inode table initialization requests
 	 * better.
 	 */
-	elr->lr_npxt2t_sched = jiffies + (prandom_u32() %
+	elr->lr_next_sched = jiffies + (prandom_u32() %
 				(PXT4_DEF_LI_MAX_START_DELAY * HZ));
 	return elr;
 }
@@ -3349,7 +3349,7 @@ int pxt4_register_li_request(struct super_block *sb,
 	pxt4_group_t ngroups = sbi->s_groups_count;
 	int ret = 0;
 
-	mutpxt2_lock(&pxt4_li_mtx);
+	mutex_lock(&pxt4_li_mtx);
 	if (sbi->s_li_request != NULL) {
 		/*
 		 * Reset timeout so it can be computed again, because
@@ -3375,9 +3375,9 @@ int pxt4_register_li_request(struct super_block *sb,
 			goto out;
 	}
 
-	mutpxt2_lock(&pxt4_li_info->li_list_mtx);
+	mutex_lock(&pxt4_li_info->li_list_mtx);
 	list_add(&elr->lr_request, &pxt4_li_info->li_request_list);
-	mutpxt2_unlock(&pxt4_li_info->li_list_mtx);
+	mutex_unlock(&pxt4_li_info->li_list_mtx);
 
 	sbi->s_li_request = elr;
 	/*
@@ -3393,7 +3393,7 @@ int pxt4_register_li_request(struct super_block *sb,
 			goto out;
 	}
 out:
-	mutpxt2_unlock(&pxt4_li_mtx);
+	mutex_unlock(&pxt4_li_mtx);
 	if (ret)
 		kfree(elr);
 	return ret;
@@ -3406,7 +3406,7 @@ out:
 static void pxt4_destroy_lazyinit_thread(void)
 {
 	/*
-	 * If thread pxt2ited earlier
+	 * If thread exited earlier
 	 * there's nothing to be done.
 	 */
 	if (!pxt4_li_info || !pxt4_lazyinit_task)
@@ -3459,7 +3459,7 @@ static int set_journal_csum_feature_set(struct super_block *sb)
  * historical BSD practice is quite difficult in the face of
  * clusters/bigalloc.  This is because multiple metadata blocks from
  * different block group can end up in the same allocation cluster.
- * Calculating the pxt2act overhead in the face of clustered allocation
+ * Calculating the exact overhead in the face of clustered allocation
  * requires either O(all block bitmaps) in memory or O(number of block
  * groups**2) in time.  We will still calculate the superblock for
  * older file systems --- and if we come across with a bigalloc file
@@ -3596,18 +3596,18 @@ static void pxt4_set_resv_clusters(struct super_block *sb)
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 
 	/*
-	 * There's no need to reserve anything when we aren't using pxt2tents.
-	 * The space estimates are pxt2act, there are no unwritten pxt2tents,
+	 * There's no need to reserve anything when we aren't using extents.
+	 * The space estimates are exact, there are no unwritten extents,
 	 * hole punching doesn't need new metadata... This is needed especially
-	 * to keep pxt2t2/3 backward compatibility.
+	 * to keep pxt2/3 backward compatibility.
 	 */
-	if (!pxt4_has_feature_pxt2tents(sb))
+	if (!pxt4_has_feature_extents(sb))
 		return;
 	/*
 	 * By default we reserve 2% or 4096 clusters, whichever is smaller.
 	 * This should cover the situations where we can not afford to run
-	 * out of space like for pxt2ample punch hole, or converting
-	 * unwritten pxt2tents in delalloc path. In most cases such
+	 * out of space like for example punch hole, or converting
+	 * unwritten extents in delalloc path. In most cases such
 	 * allocation would require 1, or 2 blocks, higher numbers are
 	 * very rare.
 	 */
@@ -3627,7 +3627,7 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 	struct buffer_head *bh, **group_desc;
 	struct pxt4_super_block *es = NULL;
 	struct pxt4_sb_info *sbi = kzalloc(sizeof(*sbi), GFP_KERNEL);
-	struct flpxt2_groups **flpxt2_groups;
+	struct flex_groups **flex_groups;
 	pxt4_fsblk_t block;
 	pxt4_fsblk_t sb_block = get_sb_block(&data);
 	pxt4_fsblk_t logical_sb_block;
@@ -3828,13 +3828,13 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 			goto failed_mount;
 		}
 		/*
-		 * i_atime_pxt2tra is the last pxt2tra field available for
+		 * i_atime_extra is the last extra field available for
 		 * [acm]times in struct pxt4_inode. Checking for that
-		 * field should suffice to ensure we have pxt2tra space
+		 * field should suffice to ensure we have extra space
 		 * for all three.
 		 */
-		if (sbi->s_inode_size >= offsetof(struct pxt4_inode, i_atime_pxt2tra) +
-			sizeof(((struct pxt4_inode *)0)->i_atime_pxt2tra)) {
+		if (sbi->s_inode_size >= offsetof(struct pxt4_inode, i_atime_extra) +
+			sizeof(((struct pxt4_inode *)0)->i_atime_extra)) {
 			sb->s_time_gran = 1;
 			sb->s_time_max = PXT4_EXTRA_TIMESTAMP_MAX;
 		} else {
@@ -3844,29 +3844,29 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 		sb->s_time_min = PXT4_TIMESTAMP_MIN;
 	}
 	if (sbi->s_inode_size > PXT4_GOOD_OLD_INODE_SIZE) {
-		sbi->s_want_pxt2tra_isize = sizeof(struct pxt4_inode) -
+		sbi->s_want_extra_isize = sizeof(struct pxt4_inode) -
 			PXT4_GOOD_OLD_INODE_SIZE;
-		if (pxt4_has_feature_pxt2tra_isize(sb)) {
+		if (pxt4_has_feature_extra_isize(sb)) {
 			unsigned v, max = (sbi->s_inode_size -
 					   PXT4_GOOD_OLD_INODE_SIZE);
 
-			v = le16_to_cpu(es->s_want_pxt2tra_isize);
+			v = le16_to_cpu(es->s_want_extra_isize);
 			if (v > max) {
 				pxt4_msg(sb, KERN_ERR,
-					 "bad s_want_pxt2tra_isize: %d", v);
+					 "bad s_want_extra_isize: %d", v);
 				goto failed_mount;
 			}
-			if (sbi->s_want_pxt2tra_isize < v)
-				sbi->s_want_pxt2tra_isize = v;
+			if (sbi->s_want_extra_isize < v)
+				sbi->s_want_extra_isize = v;
 
-			v = le16_to_cpu(es->s_min_pxt2tra_isize);
+			v = le16_to_cpu(es->s_min_extra_isize);
 			if (v > max) {
 				pxt4_msg(sb, KERN_ERR,
-					 "bad s_min_pxt2tra_isize: %d", v);
+					 "bad s_min_extra_isize: %d", v);
 				goto failed_mount;
 			}
-			if (sbi->s_want_pxt2tra_isize < v)
-				sbi->s_want_pxt2tra_isize = v;
+			if (sbi->s_want_extra_isize < v)
+				sbi->s_want_extra_isize = v;
 		}
 	}
 
@@ -3987,25 +3987,25 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 	}
 
 	if (IS_PXT2_SB(sb)) {
-		if (pxt2t2_feature_set_ok(sb))
-			pxt4_msg(sb, KERN_INFO, "mounting pxt2t2 file system "
+		if (pxt2_feature_set_ok(sb))
+			pxt4_msg(sb, KERN_INFO, "mounting pxt2 file system "
 				 "using the pxt4 subsystem");
 		else {
 			/*
 			 * If we're probing be silent, if this looks like
-			 * it's actually an pxt2t[34] filesystem.
+			 * it's actually an ext[34] filesystem.
 			 */
 			if (silent && pxt4_feature_set_ok(sb, sb_rdonly(sb)))
 				goto failed_mount;
-			pxt4_msg(sb, KERN_ERR, "couldn't mount as pxt2t2 due "
+			pxt4_msg(sb, KERN_ERR, "couldn't mount as pxt2 due "
 				 "to feature incompatibilities");
 			goto failed_mount;
 		}
 	}
 
 	if (IS_EXT3_SB(sb)) {
-		if (pxt2t3_feature_set_ok(sb))
-			pxt4_msg(sb, KERN_INFO, "mounting pxt2t3 file system "
+		if (ext3_feature_set_ok(sb))
+			pxt4_msg(sb, KERN_INFO, "mounting ext3 file system "
 				 "using the pxt4 subsystem");
 		else {
 			/*
@@ -4014,7 +4014,7 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 			 */
 			if (silent && pxt4_feature_set_ok(sb, sb_rdonly(sb)))
 				goto failed_mount;
-			pxt4_msg(sb, KERN_ERR, "couldn't mount as pxt2t3 due "
+			pxt4_msg(sb, KERN_ERR, "couldn't mount as ext3 due "
 				 "to feature incompatibilities");
 			goto failed_mount;
 		}
@@ -4136,7 +4136,7 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 	for (i = 0; i < 4; i++)
 		sbi->s_hash_seed[i] = le32_to_cpu(es->s_hash_seed[i]);
 	sbi->s_def_hash_version = es->s_def_hash_version;
-	if (pxt4_has_feature_dir_indpxt2(sb)) {
+	if (pxt4_has_feature_dir_index(sb)) {
 		i = le32_to_cpu(es->s_flags);
 		if (i & PXT2_FLAGS_UNSIGNED_HASH)
 			sbi->s_hash_unsigned = 3;
@@ -4223,7 +4223,7 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 	blocks_count = sb->s_bdev->bd_inode->i_size >> sb->s_blocksize_bits;
 	if (blocks_count && pxt4_blocks_count(es) > blocks_count) {
 		pxt4_msg(sb, KERN_WARNING, "bad geometry: block count %llu "
-		       "pxt2ceeds size of device (%llu blocks)",
+		       "exceeds size of device (%llu blocks)",
 		       pxt4_blocks_count(es), blocks_count);
 		goto failed_mount;
 	}
@@ -4323,18 +4323,18 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 
 	timer_setup(&sbi->s_err_report, print_daily_error_info, 0);
 
-	/* Register pxt2tent status tree shrinker */
+	/* Register extent status tree shrinker */
 	if (pxt4_es_register_shrinker(sbi))
 		goto failed_mount3;
 
 	sbi->s_stripe = pxt4_get_stripe_size(sbi);
-	sbi->s_pxt2tent_max_zeroout_kb = 32;
+	sbi->s_extent_max_zeroout_kb = 32;
 
 	/*
 	 * set up enough so that it can read an inode
 	 */
 	sb->s_op = &pxt4_sops;
-	sb->s_pxt2port_op = &pxt4_pxt2port_ops;
+	sb->s_export_op = &pxt4_export_ops;
 	sb->s_xattr = pxt4_xattr_handlers;
 #ifdef CONFIG_FS_ENCRYPTION
 	sb->s_cop = &pxt4_cryptops;
@@ -4353,7 +4353,7 @@ static int pxt4_fill_super(struct super_block *sb, void *data, int silent)
 	memcpy(&sb->s_uuid, es->s_uuid, sizeof(es->s_uuid));
 
 	INIT_LIST_HEAD(&sbi->s_orphan); /* unlinked but open files */
-	mutpxt2_init(&sbi->s_orphan_lock);
+	mutex_init(&sbi->s_orphan_lock);
 
 	sb->s_root = NULL;
 
@@ -4572,7 +4572,7 @@ no_journal:
 		}
 	}
 
-	pxt4_pxt2t_init(sb);
+	pxt4_ext_init(sb);
 	err = pxt4_mb_init(sb);
 	if (err) {
 		pxt4_msg(sb, KERN_ERR, "failed to initialize mballoc (%d)",
@@ -4607,11 +4607,11 @@ no_journal:
 		goto failed_mount6;
 	}
 
-	if (pxt4_has_feature_flpxt2_bg(sb))
-		if (!pxt4_fill_flpxt2_info(sb)) {
+	if (pxt4_has_feature_flex_bg(sb))
+		if (!pxt4_fill_flex_info(sb)) {
 			pxt4_msg(sb, KERN_ERR,
 			       "unable to initialize "
-			       "flpxt2_bg meta info!");
+			       "flex_bg meta info!");
 			goto failed_mount6;
 		}
 
@@ -4689,11 +4689,11 @@ failed_mount7:
 failed_mount6:
 	pxt4_mb_release(sb);
 	rcu_read_lock();
-	flpxt2_groups = rcu_dereference(sbi->s_flpxt2_groups);
-	if (flpxt2_groups) {
-		for (i = 0; i < sbi->s_flpxt2_groups_allocated; i++)
-			kvfree(flpxt2_groups[i]);
-		kvfree(flpxt2_groups);
+	flex_groups = rcu_dereference(sbi->s_flex_groups);
+	if (flex_groups) {
+		for (i = 0; i < sbi->s_flex_groups_allocated; i++)
+			kvfree(flex_groups[i]);
+		kvfree(flex_groups);
 	}
 	rcu_read_unlock();
 	percpu_counter_destroy(&sbi->s_freeclusters_counter);
@@ -4702,7 +4702,7 @@ failed_mount6:
 	percpu_counter_destroy(&sbi->s_dirtyclusters_counter);
 	percpu_free_rwsem(&sbi->s_writepages_rwsem);
 failed_mount5:
-	pxt4_pxt2t_release(sb);
+	pxt4_ext_release(sb);
 	pxt4_release_system_zone(sb);
 failed_mount4a:
 	dput(sb->s_root);
@@ -4790,7 +4790,7 @@ static struct inode *pxt4_get_journal_inode(struct super_block *sb,
 	struct inode *journal_inode;
 
 	/*
-	 * Test for the pxt2istence of a valid inode on disk.  Bad things
+	 * Test for the existence of a valid inode on disk.  Bad things
 	 * happen if we iget() an unused inode, as the subsequent iput()
 	 * will try to delete it.
 	 */
@@ -4873,7 +4873,7 @@ static journal_t *pxt4_get_dev_journal(struct super_block *sb,
 	set_blocksize(bdev, blocksize);
 	if (!(bh = __bread(bdev, sb_block, blocksize))) {
 		pxt4_msg(sb, KERN_ERR, "couldn't read superblock of "
-		       "pxt2ternal journal");
+		       "external journal");
 		goto out_bdev;
 	}
 
@@ -4881,7 +4881,7 @@ static journal_t *pxt4_get_dev_journal(struct super_block *sb,
 	if ((le16_to_cpu(es->s_magic) != PXT4_SUPER_MAGIC) ||
 	    !(le32_to_cpu(es->s_feature_incompat) &
 	      PXT4_FEATURE_INCOMPAT_JOURNAL_DEV)) {
-		pxt4_msg(sb, KERN_ERR, "pxt2ternal journal has "
+		pxt4_msg(sb, KERN_ERR, "external journal has "
 					"bad superblock");
 		brelse(bh);
 		goto out_bdev;
@@ -4890,7 +4890,7 @@ static journal_t *pxt4_get_dev_journal(struct super_block *sb,
 	if ((le32_to_cpu(es->s_feature_ro_compat) &
 	     PXT4_FEATURE_RO_COMPAT_METADATA_CSUM) &&
 	    es->s_checksum != pxt4_superblock_csum(sb, es)) {
-		pxt4_msg(sb, KERN_ERR, "pxt2ternal journal has "
+		pxt4_msg(sb, KERN_ERR, "external journal has "
 				       "corrupt superblock");
 		brelse(bh);
 		goto out_bdev;
@@ -4952,7 +4952,7 @@ static int pxt4_load_journal(struct super_block *sb,
 
 	if (journal_devnum &&
 	    journal_devnum != le32_to_cpu(es->s_journal_dev)) {
-		pxt4_msg(sb, KERN_INFO, "pxt2ternal journal device major/minor "
+		pxt4_msg(sb, KERN_INFO, "external journal device major/minor "
 			"numbers have changed");
 		journal_dev = new_decode_dev(journal_devnum);
 	} else
@@ -5377,8 +5377,8 @@ static int pxt4_remount(struct super_block *sb, int *flags, char *data)
 		} else
 			old_opts.s_qf_names[i] = NULL;
 #endif
-	if (sbi->s_journal && sbi->s_journal->j_task->io_contpxt2t)
-		journal_ioprio = sbi->s_journal->j_task->io_contpxt2t->ioprio;
+	if (sbi->s_journal && sbi->s_journal->j_task->io_context)
+		journal_ioprio = sbi->s_journal->j_task->io_context->ioprio;
 
 	/*
 	 * Some options can be enabled by pxt4 and/or by VFS mount flag
@@ -5457,7 +5457,7 @@ static int pxt4_remount(struct super_block *sb, int *flags, char *data)
 
 			/*
 			 * First of all, the unconditional stuff we have to do
-			 * to disable replay of the journal when we npxt2t remount
+			 * to disable replay of the journal when we next remount
 			 */
 			sb->s_flags |= SB_RDONLY;
 
@@ -5560,7 +5560,7 @@ static int pxt4_remount(struct super_block *sb, int *flags, char *data)
 
 	/*
 	 * Handle creation of system zone data early because it can fail.
-	 * Releasing of pxt2isting data is done when we are sure remount will
+	 * Releasing of existing data is done when we are sure remount will
 	 * succeed.
 	 */
 	if (test_opt(sb, BLOCK_VALIDITY) && !sbi->system_blks) {
@@ -5833,7 +5833,7 @@ static void lockdep_set_quota_inode(struct inode *inode, int subclass)
 	struct pxt4_inode_info *ei = PXT4_I(inode);
 
 	/* The first argument of lockdep_set_subclass has to be
-	 * *pxt2actly* the same as the argument to init_rwsem() --- in
+	 * *exactly* the same as the argument to init_rwsem() --- in
 	 * this case, in init_once() --- or lockdep gets unhappy
 	 * because the name of the lock is set using the
 	 * stringification of the argument to init_rwsem().
@@ -6128,16 +6128,16 @@ out:
 	return len;
 }
 
-static int pxt4_get_npxt2t_id(struct super_block *sb, struct kqid *qid)
+static int pxt4_get_next_id(struct super_block *sb, struct kqid *qid)
 {
 	const struct quota_format_ops	*ops;
 
 	if (!sb_has_quota_loaded(sb, qid->type))
 		return -ESRCH;
 	ops = sb_dqopt(sb)->ops[qid->type];
-	if (!ops || !ops->get_npxt2t_id)
+	if (!ops || !ops->get_next_id)
 		return -ENOSYS;
-	return dquot_get_npxt2t_id(sb, qid);
+	return dquot_get_next_id(sb, qid);
 }
 #endif
 
@@ -6148,57 +6148,57 @@ static struct dentry *pxt4_mount(struct file_system_type *fs_type, int flags,
 }
 
 #if !defined(CONFIG_PXT2_FS) && !defined(CONFIG_PXT2_FS_MODULE) && defined(CONFIG_PXT4_USE_FOR_PXT2)
-static inline void register_as_pxt2t2(void)
+static inline void register_as_pxt2(void)
 {
-	int err = register_filesystem(&pxt2t2_fs_type);
+	int err = register_filesystem(&pxt2_fs_type);
 	if (err)
 		printk(KERN_WARNING
-		       "PXT4-fs: Unable to register as pxt2t2 (%d)\n", err);
+		       "PXT4-fs: Unable to register as pxt2 (%d)\n", err);
 }
 
-static inline void unregister_as_pxt2t2(void)
+static inline void unregister_as_pxt2(void)
 {
-	unregister_filesystem(&pxt2t2_fs_type);
+	unregister_filesystem(&pxt2_fs_type);
 }
 
-static inline int pxt2t2_feature_set_ok(struct super_block *sb)
+static inline int pxt2_feature_set_ok(struct super_block *sb)
 {
-	if (pxt4_has_unknown_pxt2t2_incompat_features(sb))
+	if (pxt4_has_unknown_pxt2_incompat_features(sb))
 		return 0;
 	if (sb_rdonly(sb))
 		return 1;
-	if (pxt4_has_unknown_pxt2t2_ro_compat_features(sb))
+	if (pxt4_has_unknown_pxt2_ro_compat_features(sb))
 		return 0;
 	return 1;
 }
 #else
-static inline void register_as_pxt2t2(void) { }
-static inline void unregister_as_pxt2t2(void) { }
-static inline int pxt2t2_feature_set_ok(struct super_block *sb) { return 0; }
+static inline void register_as_pxt2(void) { }
+static inline void unregister_as_pxt2(void) { }
+static inline int pxt2_feature_set_ok(struct super_block *sb) { return 0; }
 #endif
 
-static inline void register_as_pxt2t3(void)
+static inline void register_as_ext3(void)
 {
-	int err = register_filesystem(&pxt2t3_fs_type);
+	int err = register_filesystem(&ext3_fs_type);
 	if (err)
 		printk(KERN_WARNING
-		       "PXT4-fs: Unable to register as pxt2t3 (%d)\n", err);
+		       "PXT4-fs: Unable to register as ext3 (%d)\n", err);
 }
 
-static inline void unregister_as_pxt2t3(void)
+static inline void unregister_as_ext3(void)
 {
-	unregister_filesystem(&pxt2t3_fs_type);
+	unregister_filesystem(&ext3_fs_type);
 }
 
-static inline int pxt2t3_feature_set_ok(struct super_block *sb)
+static inline int ext3_feature_set_ok(struct super_block *sb)
 {
-	if (pxt4_has_unknown_pxt2t3_incompat_features(sb))
+	if (pxt4_has_unknown_ext3_incompat_features(sb))
 		return 0;
 	if (!pxt4_has_feature_journal(sb))
 		return 0;
 	if (sb_rdonly(sb))
 		return 1;
-	if (pxt4_has_unknown_pxt2t3_ro_compat_features(sb))
+	if (pxt4_has_unknown_ext3_ro_compat_features(sb))
 		return 0;
 	return 1;
 }
@@ -6221,7 +6221,7 @@ static int __init pxt4_init_fs(void)
 
 	ratelimit_state_init(&pxt4_mount_msg_ratelimit, 30 * HZ, 64);
 	pxt4_li_info = NULL;
-	mutpxt2_init(&pxt4_li_mtx);
+	mutex_init(&pxt4_li_mtx);
 
 	/* Build-time check for flags consistency */
 	pxt4_check_flag_values();
@@ -6259,49 +6259,49 @@ static int __init pxt4_init_fs(void)
 	err = init_inodecache();
 	if (err)
 		goto out1;
-	register_as_pxt2t3();
-	register_as_pxt2t2();
+	register_as_ext3();
+	register_as_pxt2();
 	err = register_filesystem(&pxt4_fs_type);
 	if (err)
 		goto out;
 
 	return 0;
 out:
-	unregister_as_pxt2t2();
-	unregister_as_pxt2t3();
+	unregister_as_pxt2();
+	unregister_as_ext3();
 	destroy_inodecache();
 out1:
-	pxt4_pxt2it_mballoc();
+	pxt4_exit_mballoc();
 out2:
-	pxt4_pxt2it_sysfs();
+	pxt4_exit_sysfs();
 out3:
-	pxt4_pxt2it_system_zone();
+	pxt4_exit_system_zone();
 out4:
-	pxt4_pxt2it_pageio();
+	pxt4_exit_pageio();
 out5:
-	pxt4_pxt2it_post_read_processing();
+	pxt4_exit_post_read_processing();
 out6:
-	pxt4_pxt2it_pending();
+	pxt4_exit_pending();
 out7:
-	pxt4_pxt2it_es();
+	pxt4_exit_es();
 
 	return err;
 }
 
-static void __pxt2it pxt4_pxt2it_fs(void)
+static void __exit pxt4_exit_fs(void)
 {
 	pxt4_destroy_lazyinit_thread();
-	unregister_as_pxt2t2();
-	unregister_as_pxt2t3();
+	unregister_as_pxt2();
+	unregister_as_ext3();
 	unregister_filesystem(&pxt4_fs_type);
 	destroy_inodecache();
-	pxt4_pxt2it_mballoc();
-	pxt4_pxt2it_sysfs();
-	pxt4_pxt2it_system_zone();
-	pxt4_pxt2it_pageio();
-	pxt4_pxt2it_post_read_processing();
-	pxt4_pxt2it_es();
-	pxt4_pxt2it_pending();
+	pxt4_exit_mballoc();
+	pxt4_exit_sysfs();
+	pxt4_exit_system_zone();
+	pxt4_exit_pageio();
+	pxt4_exit_post_read_processing();
+	pxt4_exit_es();
+	pxt4_exit_pending();
 }
 
 MODULE_AUTHOR("Remy Card, Stephen Tweedie, Andrew Morton, Andreas Dilger, Theodore Ts'o and others");
@@ -6309,4 +6309,4 @@ MODULE_DESCRIPTION("Fourth Extended Filesystem");
 MODULE_LICENSE("GPL");
 MODULE_SOFTDEP("pre: crc32c");
 module_init(pxt4_init_fs)
-module_pxt2it(pxt4_pxt2it_fs)
+module_exit(pxt4_exit_fs)

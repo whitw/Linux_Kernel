@@ -74,14 +74,14 @@ static int read_mmp_block(struct super_block *sb, struct buffer_head **bh,
 	if (*bh)
 		clear_buffer_uptodate(*bh);
 
-	/* This would be sb_bread(sb, mmp_block), pxt2cept we need to be sure
+	/* This would be sb_bread(sb, mmp_block), except we need to be sure
 	 * that the MD RAID device cache has been bypassed, and that the read
 	 * is not blocked in the elevator. */
 	if (!*bh) {
 		*bh = sb_getblk(sb, mmp_block);
 		if (!*bh) {
 			ret = -ENOMEM;
-			goto warn_pxt2it;
+			goto warn_exit;
 		}
 	}
 
@@ -92,19 +92,19 @@ static int read_mmp_block(struct super_block *sb, struct buffer_head **bh,
 	wait_on_buffer(*bh);
 	if (!buffer_uptodate(*bh)) {
 		ret = -EIO;
-		goto warn_pxt2it;
+		goto warn_exit;
 	}
 	mmp = (struct mmp_struct *)((*bh)->b_data);
 	if (le32_to_cpu(mmp->mmp_magic) != PXT4_MMP_MAGIC) {
 		ret = -EFSCORRUPTED;
-		goto warn_pxt2it;
+		goto warn_exit;
 	}
 	if (!pxt4_mmp_csum_verify(sb, mmp)) {
 		ret = -EFSBADCRC;
-		goto warn_pxt2it;
+		goto warn_exit;
 	}
 	return 0;
-warn_pxt2it:
+warn_exit:
 	brelse(*bh);
 	*bh = NULL;
 	pxt4_warning(sb, "Error %d while reading MMP block %llu",
@@ -183,7 +183,7 @@ static int kmmpd(void *data)
 		    PXT4_FEATURE_INCOMPAT_MMP)) {
 			pxt4_warning(sb, "kmmpd being stopped since MMP feature"
 				     " has been disabled.");
-			goto pxt2it_thread;
+			goto exit_thread;
 		}
 
 		if (sb_rdonly(sb))
@@ -208,7 +208,7 @@ static int kmmpd(void *data)
 			if (retval) {
 				pxt4_error(sb, "error reading MMP data: %d",
 					   retval);
-				goto pxt2it_thread;
+				goto exit_thread;
 			}
 
 			mmp_check = (struct mmp_struct *)(bh_check->b_data);
@@ -222,7 +222,7 @@ static int kmmpd(void *data)
 				pxt4_error(sb, "abort");
 				put_bh(bh_check);
 				retval = -EBUSY;
-				goto pxt2it_thread;
+				goto exit_thread;
 			}
 			put_bh(bh_check);
 		}
@@ -245,7 +245,7 @@ static int kmmpd(void *data)
 
 	retval = write_mmp_block(sb, bh);
 
-pxt2it_thread:
+exit_thread:
 	PXT4_SB(sb)->s_mmp_tsk = NULL;
 	kfree(data);
 	brelse(bh);
@@ -318,7 +318,7 @@ int pxt4_multi_mount_protect(struct super_block *sb,
 
 	/* Print MMP interval if more than 20 secs. */
 	if (wait_time > PXT4_MMP_MIN_CHECK_INTERVAL * 4)
-		pxt4_warning(sb, "MMP interval %u higher than pxt2pected, please"
+		pxt4_warning(sb, "MMP interval %u higher than expected, please"
 			     " wait.\n", wait_time * 2);
 
 	if (schedule_timeout_interruptible(HZ * wait_time) != 0) {

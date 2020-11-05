@@ -38,7 +38,7 @@ static void TEA_transform(__u32 buf[4], __u32 const in[])
 /*
  * The generic round function.  The application is so specific that
  * we don't bother protecting all the arguments with parens, as is generally
- * good macro practice, in favor of pxt2tra legibility.
+ * good macro practice, in favor of extra legibility.
  * Rotation is separate from addition to prevent recomputation
  */
 #define ROUND(f, a, b, c, d, x, s)	\

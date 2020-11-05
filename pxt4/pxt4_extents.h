@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2003-2006, Cluster File Systems, Inc, info@clusterfs.com
- * Written by Alpxt2 Tomas <alpxt2@clusterfs.com>
+ * Written by Alex Tomas <alex@clusterfs.com>
  */
 
 #ifndef _PXT4_EXTENTS
@@ -10,15 +10,15 @@
 #include "pxt4.h"
 
 /*
- * With AGGRESSIVE_TEST defined, the capacity of indpxt2/leaf blocks
- * becomes very small, so indpxt2 split, in-depth growing and
+ * With AGGRESSIVE_TEST defined, the capacity of index/leaf blocks
+ * becomes very small, so index split, in-depth growing and
  * other hard changes happen much more often.
  * This is for debug purposes only.
  */
 #define AGGRESSIVE_TEST_
 
 /*
- * With EXTENTS_STATS defined, the number of blocks and pxt2tents
+ * With EXTENTS_STATS defined, the number of blocks and extents
  * are collected in the truncate path. They'll be shown at
  * umount time.
  */
@@ -39,50 +39,50 @@
 
 /*
  * pxt4_inode has i_block array (60 bytes total).
- * The first 12 bytes store pxt4_pxt2tent_header;
- * the remainder stores an array of pxt4_pxt2tent.
- * For non-inode pxt2tent blocks, pxt4_pxt2tent_tail
+ * The first 12 bytes store pxt4_extent_header;
+ * the remainder stores an array of pxt4_extent.
+ * For non-inode extent blocks, pxt4_extent_tail
  * follows the array.
  */
 
 /*
- * This is the pxt2tent tail on-disk structure.
- * All other pxt2tent structures are 12 bytes long.  It turns out that
+ * This is the extent tail on-disk structure.
+ * All other extent structures are 12 bytes long.  It turns out that
  * block_size % 12 >= 4 for at least all powers of 2 greater than 512, which
  * covers all valid pxt4 block sizes.  Therefore, this tail structure can be
  * crammed into the end of the block without having to rebalance the tree.
  */
-struct pxt4_pxt2tent_tail {
-	__le32	et_checksum;	/* crc32c(uuid+inum+pxt2tent_block) */
+struct pxt4_extent_tail {
+	__le32	et_checksum;	/* crc32c(uuid+inum+extent_block) */
 };
 
 /*
- * This is the pxt2tent on-disk structure.
+ * This is the extent on-disk structure.
  * It's used at the bottom of the tree.
  */
-struct pxt4_pxt2tent {
-	__le32	ee_block;	/* first logical block pxt2tent covers */
-	__le16	ee_len;		/* number of blocks covered by pxt2tent */
+struct pxt4_extent {
+	__le32	ee_block;	/* first logical block extent covers */
+	__le16	ee_len;		/* number of blocks covered by extent */
 	__le16	ee_start_hi;	/* high 16 bits of physical block */
 	__le32	ee_start_lo;	/* low 32 bits of physical block */
 };
 
 /*
- * This is indpxt2 on-disk structure.
- * It's used at all the levels pxt2cept the bottom.
+ * This is index on-disk structure.
+ * It's used at all the levels except the bottom.
  */
-struct pxt4_pxt2tent_idx {
-	__le32	ei_block;	/* indpxt2 covers logical blocks from 'block' */
-	__le32	ei_leaf_lo;	/* pointer to the physical block of the npxt2t *
-				 * level. leaf or npxt2t indpxt2 could be there */
+struct pxt4_extent_idx {
+	__le32	ei_block;	/* index covers logical blocks from 'block' */
+	__le32	ei_leaf_lo;	/* pointer to the physical block of the next *
+				 * level. leaf or next index could be there */
 	__le16	ei_leaf_hi;	/* high 16 bits of physical block */
 	__u16	ei_unused;
 };
 
 /*
- * Each block (leaves and indpxt2es), even inode-stored has header.
+ * Each block (leaves and indexes), even inode-stored has header.
  */
-struct pxt4_pxt2tent_header {
+struct pxt4_extent_header {
 	__le16	eh_magic;	/* probably will support different formats */
 	__le16	eh_entries;	/* number of valid entries */
 	__le16	eh_max;		/* capacity of store in entries */
@@ -94,36 +94,36 @@ struct pxt4_pxt2tent_header {
 #define PXT4_MAX_EXTENT_DEPTH 5
 
 #define PXT4_EXTENT_TAIL_OFFSET(hdr) \
-	(sizeof(struct pxt4_pxt2tent_header) + \
-	 (sizeof(struct pxt4_pxt2tent) * le16_to_cpu((hdr)->eh_max)))
+	(sizeof(struct pxt4_extent_header) + \
+	 (sizeof(struct pxt4_extent) * le16_to_cpu((hdr)->eh_max)))
 
-static inline struct pxt4_pxt2tent_tail *
-find_pxt4_pxt2tent_tail(struct pxt4_pxt2tent_header *eh)
+static inline struct pxt4_extent_tail *
+find_pxt4_extent_tail(struct pxt4_extent_header *eh)
 {
-	return (struct pxt4_pxt2tent_tail *)(((void *)eh) +
+	return (struct pxt4_extent_tail *)(((void *)eh) +
 					   PXT4_EXTENT_TAIL_OFFSET(eh));
 }
 
 /*
- * Array of pxt4_pxt2t_path contains path to some pxt2tent.
+ * Array of pxt4_ext_path contains path to some extent.
  * Creation/lookup routines use it for traversal/splitting/etc.
  * Truncate uses it to simulate recursive walking.
  */
-struct pxt4_pxt2t_path {
+struct pxt4_ext_path {
 	pxt4_fsblk_t			p_block;
 	__u16				p_depth;
 	__u16				p_maxdepth;
-	struct pxt4_pxt2tent		*p_pxt2t;
-	struct pxt4_pxt2tent_idx		*p_idx;
-	struct pxt4_pxt2tent_header	*p_hdr;
+	struct pxt4_extent		*p_ext;
+	struct pxt4_extent_idx		*p_idx;
+	struct pxt4_extent_header	*p_hdr;
 	struct buffer_head		*p_bh;
 };
 
 /*
  * Used to record a portion of a cluster found at the beginning or end
- * of an pxt2tent while traversing the pxt2tent tree during space removal.
+ * of an extent while traversing the extent tree during space removal.
  * A partial cluster may be removed if it does not contain blocks shared
- * with pxt2tents that aren't being deleted (tofree state).  Otherwise,
+ * with extents that aren't being deleted (tofree state).  Otherwise,
  * it cannot be removed (nofree state).
  */
 struct partial_cluster {
@@ -133,36 +133,36 @@ struct partial_cluster {
 };
 
 /*
- * structure for pxt2ternal API
+ * structure for external API
  */
 
 /*
  * EXT_INIT_MAX_LEN is the maximum number of blocks we can have in an
- * initialized pxt2tent. This is 2^15 and not (2^16 - 1), since we use the
- * MSB of ee_len field in the pxt2tent datastructure to signify if this
- * particular pxt2tent is an initialized pxt2tent or an unwritten (i.e.
+ * initialized extent. This is 2^15 and not (2^16 - 1), since we use the
+ * MSB of ee_len field in the extent datastructure to signify if this
+ * particular extent is an initialized extent or an unwritten (i.e.
  * preallocated).
  * EXT_UNWRITTEN_MAX_LEN is the maximum number of blocks we can have in an
- * unwritten pxt2tent.
- * If ee_len is <= 0x8000, it is an initialized pxt2tent. Otherwise, it is an
+ * unwritten extent.
+ * If ee_len is <= 0x8000, it is an initialized extent. Otherwise, it is an
  * unwritten one. In other words, if MSB of ee_len is set, it is an
- * unwritten pxt2tent with only one special scenario when ee_len = 0x8000.
- * In this case we can not have an unwritten pxt2tent of zero length and
- * thus we make it as a special case of initialized pxt2tent with 0x8000 length.
- * This way we get better pxt2tent-to-group alignment for initialized pxt2tents.
+ * unwritten extent with only one special scenario when ee_len = 0x8000.
+ * In this case we can not have an unwritten extent of zero length and
+ * thus we make it as a special case of initialized extent with 0x8000 length.
+ * This way we get better extent-to-group alignment for initialized extents.
  * Hence, the maximum number of blocks we can have in an *initialized*
- * pxt2tent is 2^15 (32768) and in an *unwritten* pxt2tent is 2^15-1 (32767).
+ * extent is 2^15 (32768) and in an *unwritten* extent is 2^15-1 (32767).
  */
 #define EXT_INIT_MAX_LEN	(1UL << 15)
 #define EXT_UNWRITTEN_MAX_LEN	(EXT_INIT_MAX_LEN - 1)
 
 
 #define EXT_FIRST_EXTENT(__hdr__) \
-	((struct pxt4_pxt2tent *) (((char *) (__hdr__)) +		\
-				 sizeof(struct pxt4_pxt2tent_header)))
+	((struct pxt4_extent *) (((char *) (__hdr__)) +		\
+				 sizeof(struct pxt4_extent_header)))
 #define EXT_FIRST_INDEX(__hdr__) \
-	((struct pxt4_pxt2tent_idx *) (((char *) (__hdr__)) +	\
-				     sizeof(struct pxt4_pxt2tent_header)))
+	((struct pxt4_extent_idx *) (((char *) (__hdr__)) +	\
+				     sizeof(struct pxt4_extent_header)))
 #define EXT_HAS_FREE_INDEX(__path__) \
 	(le16_to_cpu((__path__)->p_hdr->eh_entries) \
 				     < le16_to_cpu((__path__)->p_hdr->eh_max))
@@ -178,56 +178,56 @@ struct partial_cluster {
 	((le16_to_cpu((__hdr__)->eh_max)) ? \
 	((EXT_FIRST_INDEX((__hdr__)) + le16_to_cpu((__hdr__)->eh_max) - 1)) : 0)
 
-static inline struct pxt4_pxt2tent_header *pxt2t_inode_hdr(struct inode *inode)
+static inline struct pxt4_extent_header *ext_inode_hdr(struct inode *inode)
 {
-	return (struct pxt4_pxt2tent_header *) PXT4_I(inode)->i_data;
+	return (struct pxt4_extent_header *) PXT4_I(inode)->i_data;
 }
 
-static inline struct pxt4_pxt2tent_header *pxt2t_block_hdr(struct buffer_head *bh)
+static inline struct pxt4_extent_header *ext_block_hdr(struct buffer_head *bh)
 {
-	return (struct pxt4_pxt2tent_header *) bh->b_data;
+	return (struct pxt4_extent_header *) bh->b_data;
 }
 
-static inline unsigned short pxt2t_depth(struct inode *inode)
+static inline unsigned short ext_depth(struct inode *inode)
 {
-	return le16_to_cpu(pxt2t_inode_hdr(inode)->eh_depth);
+	return le16_to_cpu(ext_inode_hdr(inode)->eh_depth);
 }
 
-static inline void pxt4_pxt2t_mark_unwritten(struct pxt4_pxt2tent *pxt2t)
+static inline void pxt4_ext_mark_unwritten(struct pxt4_extent *ext)
 {
-	/* We can not have an unwritten pxt2tent of zero length! */
-	BUG_ON((le16_to_cpu(pxt2t->ee_len) & ~EXT_INIT_MAX_LEN) == 0);
-	pxt2t->ee_len |= cpu_to_le16(EXT_INIT_MAX_LEN);
+	/* We can not have an unwritten extent of zero length! */
+	BUG_ON((le16_to_cpu(ext->ee_len) & ~EXT_INIT_MAX_LEN) == 0);
+	ext->ee_len |= cpu_to_le16(EXT_INIT_MAX_LEN);
 }
 
-static inline int pxt4_pxt2t_is_unwritten(struct pxt4_pxt2tent *pxt2t)
+static inline int pxt4_ext_is_unwritten(struct pxt4_extent *ext)
 {
-	/* Extent with ee_len of 0x8000 is treated as an initialized pxt2tent */
-	return (le16_to_cpu(pxt2t->ee_len) > EXT_INIT_MAX_LEN);
+	/* Extent with ee_len of 0x8000 is treated as an initialized extent */
+	return (le16_to_cpu(ext->ee_len) > EXT_INIT_MAX_LEN);
 }
 
-static inline int pxt4_pxt2t_get_actual_len(struct pxt4_pxt2tent *pxt2t)
+static inline int pxt4_ext_get_actual_len(struct pxt4_extent *ext)
 {
-	return (le16_to_cpu(pxt2t->ee_len) <= EXT_INIT_MAX_LEN ?
-		le16_to_cpu(pxt2t->ee_len) :
-		(le16_to_cpu(pxt2t->ee_len) - EXT_INIT_MAX_LEN));
+	return (le16_to_cpu(ext->ee_len) <= EXT_INIT_MAX_LEN ?
+		le16_to_cpu(ext->ee_len) :
+		(le16_to_cpu(ext->ee_len) - EXT_INIT_MAX_LEN));
 }
 
-static inline void pxt4_pxt2t_mark_initialized(struct pxt4_pxt2tent *pxt2t)
+static inline void pxt4_ext_mark_initialized(struct pxt4_extent *ext)
 {
-	pxt2t->ee_len = cpu_to_le16(pxt4_pxt2t_get_actual_len(pxt2t));
+	ext->ee_len = cpu_to_le16(pxt4_ext_get_actual_len(ext));
 }
 
 /*
- * pxt4_pxt2t_pblock:
+ * pxt4_ext_pblock:
  * combine low and high parts of physical block number into pxt4_fsblk_t
  */
-static inline pxt4_fsblk_t pxt4_pxt2t_pblock(struct pxt4_pxt2tent *pxt2)
+static inline pxt4_fsblk_t pxt4_ext_pblock(struct pxt4_extent *ex)
 {
 	pxt4_fsblk_t block;
 
-	block = le32_to_cpu(pxt2->ee_start_lo);
-	block |= ((pxt4_fsblk_t) le16_to_cpu(pxt2->ee_start_hi) << 31) << 1;
+	block = le32_to_cpu(ex->ee_start_lo);
+	block |= ((pxt4_fsblk_t) le16_to_cpu(ex->ee_start_hi) << 31) << 1;
 	return block;
 }
 
@@ -235,7 +235,7 @@ static inline pxt4_fsblk_t pxt4_pxt2t_pblock(struct pxt4_pxt2tent *pxt2)
  * pxt4_idx_pblock:
  * combine low and high parts of a leaf physical block number into pxt4_fsblk_t
  */
-static inline pxt4_fsblk_t pxt4_idx_pblock(struct pxt4_pxt2tent_idx *ix)
+static inline pxt4_fsblk_t pxt4_idx_pblock(struct pxt4_extent_idx *ix)
 {
 	pxt4_fsblk_t block;
 
@@ -245,24 +245,24 @@ static inline pxt4_fsblk_t pxt4_idx_pblock(struct pxt4_pxt2tent_idx *ix)
 }
 
 /*
- * pxt4_pxt2t_store_pblock:
- * stores a large physical block number into an pxt2tent struct,
+ * pxt4_ext_store_pblock:
+ * stores a large physical block number into an extent struct,
  * breaking it into parts
  */
-static inline void pxt4_pxt2t_store_pblock(struct pxt4_pxt2tent *pxt2,
+static inline void pxt4_ext_store_pblock(struct pxt4_extent *ex,
 					 pxt4_fsblk_t pb)
 {
-	pxt2->ee_start_lo = cpu_to_le32((unsigned long) (pb & 0xffffffff));
-	pxt2->ee_start_hi = cpu_to_le16((unsigned long) ((pb >> 31) >> 1) &
+	ex->ee_start_lo = cpu_to_le32((unsigned long) (pb & 0xffffffff));
+	ex->ee_start_hi = cpu_to_le16((unsigned long) ((pb >> 31) >> 1) &
 				      0xffff);
 }
 
 /*
  * pxt4_idx_store_pblock:
- * stores a large physical block number into an indpxt2 struct,
+ * stores a large physical block number into an index struct,
  * breaking it into parts
  */
-static inline void pxt4_idx_store_pblock(struct pxt4_pxt2tent_idx *ix,
+static inline void pxt4_idx_store_pblock(struct pxt4_extent_idx *ix,
 					 pxt4_fsblk_t pb)
 {
 	ix->ei_leaf_lo = cpu_to_le32((unsigned long) (pb & 0xffffffff));
@@ -270,10 +270,10 @@ static inline void pxt4_idx_store_pblock(struct pxt4_pxt2tent_idx *ix,
 				     0xffff);
 }
 
-#define pxt4_pxt2t_dirty(handle, inode, path) \
-		__pxt4_pxt2t_dirty(__func__, __LINE__, (handle), (inode), (path))
-int __pxt4_pxt2t_dirty(const char *where, unsigned int line, handle_t *handle,
-		     struct inode *inode, struct pxt4_pxt2t_path *path);
+#define pxt4_ext_dirty(handle, inode, path) \
+		__pxt4_ext_dirty(__func__, __LINE__, (handle), (inode), (path))
+int __pxt4_ext_dirty(const char *where, unsigned int line, handle_t *handle,
+		     struct inode *inode, struct pxt4_ext_path *path);
 
 #endif /* _PXT4_EXTENTS */
 

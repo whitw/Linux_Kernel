@@ -34,7 +34,7 @@ typedef enum {
 } attr_id_t;
 
 typedef enum {
-	ptr_pxt2plicit,
+	ptr_explicit,
 	ptr_pxt4_sb_info_offset,
 	ptr_pxt4_super_block_offset,
 } attr_ptr_t;
@@ -48,7 +48,7 @@ struct pxt4_attr {
 	short attr_ptr;
 	union {
 		int offset;
-		void *pxt2plicit_ptr;
+		void *explicit_ptr;
 	} u;
 };
 
@@ -164,9 +164,9 @@ static struct pxt4_attr pxt4_attr_##_name = {			\
 static struct pxt4_attr pxt4_attr_##_name = {			\
 	.attr = {.name = __stringify(_name), .mode = _mode },	\
 	.attr_id = attr_##_id,					\
-	.attr_ptr = ptr_pxt2plicit,				\
+	.attr_ptr = ptr_explicit,				\
 	.u = {							\
-		.pxt2plicit_ptr = _ptr,				\
+		.explicit_ptr = _ptr,				\
 	},							\
 }
 
@@ -186,7 +186,7 @@ PXT4_RW_ATTR_SBI_UI(mb_min_to_scan, s_mb_min_to_scan);
 PXT4_RW_ATTR_SBI_UI(mb_order2_req, s_mb_order2_reqs);
 PXT4_RW_ATTR_SBI_UI(mb_stream_req, s_mb_stream_request);
 PXT4_RW_ATTR_SBI_UI(mb_group_prealloc, s_mb_group_prealloc);
-PXT4_RW_ATTR_SBI_UI(pxt2tent_max_zeroout_kb, s_pxt2tent_max_zeroout_kb);
+PXT4_RW_ATTR_SBI_UI(extent_max_zeroout_kb, s_extent_max_zeroout_kb);
 PXT4_ATTR(trigger_fs_error, 0200, trigger_test_error);
 PXT4_RW_ATTR_SBI_UI(err_ratelimit_interval_ms, s_err_ratelimit_state.interval);
 PXT4_RW_ATTR_SBI_UI(err_ratelimit_burst, s_err_ratelimit_state.burst);
@@ -216,7 +216,7 @@ static struct attribute *pxt4_attrs[] = {
 	ATTR_LIST(mb_stream_req),
 	ATTR_LIST(mb_group_prealloc),
 	ATTR_LIST(max_writeback_mb_bump),
-	ATTR_LIST(pxt2tent_max_zeroout_kb),
+	ATTR_LIST(extent_max_zeroout_kb),
 	ATTR_LIST(trigger_fs_error),
 	ATTR_LIST(err_ratelimit_interval_ms),
 	ATTR_LIST(err_ratelimit_burst),
@@ -268,8 +268,8 @@ ATTRIBUTE_GROUPS(pxt4_feat);
 static void *calc_ptr(struct pxt4_attr *a, struct pxt4_sb_info *sbi)
 {
 	switch (a->attr_ptr) {
-	case ptr_pxt2plicit:
-		return a->u.pxt2plicit_ptr;
+	case ptr_explicit:
+		return a->u.explicit_ptr;
 	case ptr_pxt4_sb_info_offset:
 		return (void *) (((char *) sbi) + a->u.offset);
 	case ptr_pxt4_super_block_offset:
@@ -465,7 +465,7 @@ root_err:
 	return ret;
 }
 
-void pxt4_pxt2it_sysfs(void)
+void pxt4_exit_sysfs(void)
 {
 	kobject_put(pxt4_feat);
 	pxt4_feat = NULL;

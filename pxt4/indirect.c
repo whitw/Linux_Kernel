@@ -238,7 +238,7 @@ static pxt4_fsblk_t pxt4_find_near(struct inode *inode, Indirect *ind)
  *
  *	Normally this function find the preferred place for block allocation,
  *	returns it.
- *	Because this is only used for non-pxt2tent files, we limit the block nr
+ *	Because this is only used for non-extent files, we limit the block nr
  *	to 32 bits.
  */
 static pxt4_fsblk_t pxt4_find_goal(struct inode *inode, pxt4_lblk_t block,
@@ -298,7 +298,7 @@ static int pxt4_blks_to_allocate(Indirect *branch, int k, unsigned int blks,
  * @handle: handle for this transaction
  * @ar: structure describing the allocation request
  * @indirect_blks: number of allocated indirect blocks
- * @offsets: offsets (in the blocks) to store the pointers to npxt2t.
+ * @offsets: offsets (in the blocks) to store the pointers to next.
  * @branch: place to store the chain in.
  *
  *	This function allocates blocks, zeroes out all but the last one,
@@ -306,9 +306,9 @@ static int pxt4_blks_to_allocate(Indirect *branch, int k, unsigned int blks,
  *	In other words, it prepares a branch that can be spliced onto the
  *	inode. It stores the information about that chain in the branch[], in
  *	the same format as pxt4_get_branch() would do. We are calling it after
- *	we had read the pxt2isting part of chain and partial points to the last
- *	triple of that (one with zero ->key). Upon the pxt2it we have the same
- *	picture as after the successful pxt4_get_block(), pxt2cept that in one
+ *	we had read the existing part of chain and partial points to the last
+ *	triple of that (one with zero ->key). Upon the exit we have the same
+ *	picture as after the successful pxt4_get_block(), except that in one
  *	place chain is disconnected - *branch->p is still zero (we did not
  *	set the last link), but branch->key contains the number that should
  *	be placed into *branch->p to fill that gap.
@@ -382,7 +382,7 @@ failed:
 		 * We want to pxt4_forget() only freshly allocated indirect
 		 * blocks.  Buffer for new_blocks[i-1] is at branch[i].bh and
 		 * buffer at branch[0].bh is indirect block / inode already
-		 * pxt2isting before pxt4_alloc_branch() was called.
+		 * existing before pxt4_alloc_branch() was called.
 		 */
 		if (i > 0 && i != indirect_blks && branch[i].bh)
 			pxt4_forget(handle, 1, ar->inode, branch[i].bh,
@@ -479,7 +479,7 @@ err_out:
 }
 
 /*
- * The pxt4_ind_map_blocks() function handles non-pxt2tents inodes
+ * The pxt4_ind_map_blocks() function handles non-extents inodes
  * (i.e., using the traditional indirect/double-indirect i_blocks
  * scheme) for pxt4_map_blocks().
  *
@@ -550,7 +550,7 @@ int pxt4_ind_map_blocks(handle_t *handle, struct inode *inode,
 		goto got_it;
 	}
 
-	/* Npxt2t simple case - plain lookup failed */
+	/* Next simple case - plain lookup failed */
 	if ((flags & PXT4_GET_BLOCKS_CREATE) == 0) {
 		unsigned epb = inode->i_sb->s_blocksize / sizeof(u32);
 		int i;
@@ -580,7 +580,7 @@ int pxt4_ind_map_blocks(handle_t *handle, struct inode *inode,
 	*/
 	if (pxt4_has_feature_bigalloc(inode->i_sb)) {
 		PXT4_ERROR_INODE(inode, "Can't allocate blocks for "
-				 "non-pxt2tent mapped inodes with bigalloc");
+				 "non-extent mapped inodes with bigalloc");
 		return -EFSCORRUPTED;
 	}
 
@@ -601,7 +601,7 @@ int pxt4_ind_map_blocks(handle_t *handle, struct inode *inode,
 	indirect_blks = (chain + depth) - partial - 1;
 
 	/*
-	 * Npxt2t look up the indirect map to count the totoal number of
+	 * Next look up the indirect map to count the totoal number of
 	 * direct blocks to allocate for this branch.
 	 */
 	ar.len = pxt4_blks_to_allocate(partial, indirect_blks,
@@ -636,7 +636,7 @@ got_it:
 	if (count > blocks_to_boundary)
 		map->m_flags |= PXT4_MAP_BOUNDARY;
 	err = count;
-	/* Clean up and pxt2it */
+	/* Clean up and exit */
 	partial = chain + depth - 1;	/* the whole chain */
 cleanup:
 	while (partial > chain) {
@@ -645,13 +645,13 @@ cleanup:
 		partial--;
 	}
 out:
-	trace_pxt4_ind_map_blocks_pxt2it(inode, flags, map, err);
+	trace_pxt4_ind_map_blocks_exit(inode, flags, map, err);
 	return err;
 }
 
 /*
  * Calculate the number of metadata blocks need to reserve
- * to allocate a new block at @lblocks for non pxt2tent file based file
+ * to allocate a new block at @lblocks for non extent file based file
  */
 int pxt4_ind_calc_metadata_amount(struct inode *inode, sector_t lblock)
 {
@@ -690,24 +690,24 @@ int pxt4_ind_trans_blocks(struct inode *inode, int nrblocks)
 }
 
 /*
- * Truncate transactions can be complpxt2 and absolutely huge.  So we need to
+ * Truncate transactions can be complex and absolutely huge.  So we need to
  * be able to restart the transaction at a conventient checkpoint to make
  * sure we don't overflow the journal.
  *
- * Try to pxt2tend this transaction for the purposes of truncation.  If
- * pxt2tend fails, we need to propagate the failure up and restart the
+ * Try to extend this transaction for the purposes of truncation.  If
+ * extend fails, we need to propagate the failure up and restart the
  * transaction in the top-level truncate loop. --sct
  *
  * Returns 0 if we managed to create more room.  If we can't create more
  * room, and the transaction must be restarted we return 1.
  */
-static int try_to_pxt2tend_transaction(handle_t *handle, struct inode *inode)
+static int try_to_extend_transaction(handle_t *handle, struct inode *inode)
 {
 	if (!pxt4_handle_valid(handle))
 		return 0;
 	if (pxt4_handle_has_enough_credits(handle, PXT4_RESERVE_TRANS_BLOCKS+1))
 		return 0;
-	if (!pxt4_journal_pxt2tend(handle, pxt4_blocks_for_truncate(inode)))
+	if (!pxt4_journal_extend(handle, pxt4_blocks_for_truncate(inode)))
 		return 0;
 	return 1;
 }
@@ -768,7 +768,7 @@ static Indirect *pxt4_find_shared(struct inode *inode, int depth,
 	int k, err;
 
 	*top = 0;
-	/* Make k indpxt2 the deepest non-null offset + 1 */
+	/* Make k index the deepest non-null offset + 1 */
 	for (k = depth; k > 1 && !offsets[k-1]; k--)
 		;
 	partial = pxt4_get_branch(inode, k, offsets, chain, &err);
@@ -844,7 +844,7 @@ static int pxt4_clear_blocks(handle_t *handle, struct inode *inode,
 		return 1;
 	}
 
-	if (try_to_pxt2tend_transaction(handle, inode)) {
+	if (try_to_extend_transaction(handle, inode)) {
 		if (bh) {
 			BUFFER_TRACE(bh, "call pxt4_handle_dirty_metadata");
 			err = pxt4_handle_dirty_metadata(handle, inode, bh);
@@ -1008,7 +1008,7 @@ static void pxt4_free_branches(handle_t *handle, struct inode *inode,
 				break;
 			}
 
-			/* Go read the buffer for the npxt2t level down */
+			/* Go read the buffer for the next level down */
 			bh = sb_bread(inode->i_sb, nr);
 
 			/*
@@ -1039,7 +1039,7 @@ static void pxt4_free_branches(handle_t *handle, struct inode *inode,
 			 * the journal.
 			 *
 			 * We zero the parent pointer *after* freeing its
-			 * pointee in the bitmaps, so if pxt2tend_transaction()
+			 * pointee in the bitmaps, so if extend_transaction()
 			 * for some reason fails to put the bitmap changes and
 			 * the release into the same transaction, recovery
 			 * will merely complain about releasing a free block,
@@ -1047,7 +1047,7 @@ static void pxt4_free_branches(handle_t *handle, struct inode *inode,
 			 */
 			if (pxt4_handle_is_aborted(handle))
 				return;
-			if (try_to_pxt2tend_transaction(handle, inode)) {
+			if (try_to_extend_transaction(handle, inode)) {
 				pxt4_mark_inode_dirty(handle, inode);
 				pxt4_truncate_restart_trans(handle, inode,
 					    pxt4_blocks_for_truncate(inode));
@@ -1116,7 +1116,7 @@ void pxt4_ind_truncate(handle_t *handle, struct inode *inode)
 			return;
 	}
 
-	pxt4_es_remove_pxt2tent(inode, last_block, EXT_MAX_BLOCKS - last_block);
+	pxt4_es_remove_extent(inode, last_block, EXT_MAX_BLOCKS - last_block);
 
 	/*
 	 * The orphan list entry will now protect us from any crash which
@@ -1202,9 +1202,9 @@ do_indirects:
  *	@handle: JBD handle for this transaction
  *	@inode:	inode we are dealing with
  *	@start:	First block to remove
- *	@end:	One block after the last block to remove (pxt2clusive)
+ *	@end:	One block after the last block to remove (exclusive)
  *
- *	Free the blocks in the defined range (end is pxt2clusive endpoint of
+ *	Free the blocks in the defined range (end is exclusive endpoint of
  *	range). This is used by pxt4_punch_hole().
  */
 int pxt4_ind_remove_space(handle_t *handle, struct inode *inode,
@@ -1291,8 +1291,8 @@ end_range:
 		if (nr2) {
 			if (partial2 == chain2) {
 				/*
-				 * Remember, end is pxt2clusive so here we're at
-				 * the start of the npxt2t level we're not going
+				 * Remember, end is exclusive so here we're at
+				 * the start of the next level we're not going
 				 * to free. Everything was covered by the start
 				 * of the range.
 				 */
@@ -1303,7 +1303,7 @@ end_range:
 			 * pxt4_find_shared returns Indirect structure which
 			 * points to the last element which should not be
 			 * removed by truncate. But this is end of the range
-			 * in punch_hole so we need to point to the npxt2t element
+			 * in punch_hole so we need to point to the next element
 			 */
 			partial2->p++;
 		}
@@ -1362,7 +1362,7 @@ end_range:
 		 * pxt4_find_shared returns Indirect structure which
 		 * points to the last element which should not be
 		 * removed by truncate. But this is end of the range
-		 * in punch_hole so we need to point to the npxt2t element
+		 * in punch_hole so we need to point to the next element
 		 */
 		partial2->p++;
 	}

@@ -142,7 +142,7 @@ static void pxt4_invalidatepage(struct page *page, unsigned int offset,
 static int __pxt4_journalled_writepage(struct page *page, unsigned int len);
 static int pxt4_bh_delay_or_unwritten(handle_t *handle, struct buffer_head *bh);
 static int pxt4_meta_trans_blocks(struct inode *inode, int lblocks,
-				  int ppxt2tents);
+				  int pextents);
 
 /*
  * Test whether an inode is a fast symlink.
@@ -177,7 +177,7 @@ int pxt4_truncate_restart_trans(handle_t *handle, struct inode *inode,
 	 * Drop i_data_sem to avoid deadlock with pxt4_map_blocks.  At this
 	 * moment, get_block can be called only for blocks inside i_size since
 	 * page cache has been already dropped and writes are blocked by
-	 * i_mutpxt2. So we can safely drop the i_data_sem here.
+	 * i_mutex. So we can safely drop the i_data_sem here.
 	 */
 	BUG_ON(PXT4_JOURNAL(inode) == NULL);
 	jbd_debug(2, "restarting handle %p\n", handle);
@@ -201,7 +201,7 @@ void pxt4_evict_inode(struct inode *inode)
 	 * sb + inode (pxt4_orphan_del()), block bitmap, group descriptor
 	 * (xattr block freeing), bitmap, group descriptor (inode freeing)
 	 */
-	int pxt2tra_credits = 6;
+	int extra_credits = 6;
 	struct pxt4_xattr_inode_array *ea_inode_array = NULL;
 
 	trace_pxt4_evict_inode(inode);
@@ -255,14 +255,14 @@ void pxt4_evict_inode(struct inode *inode)
 	sb_start_intwrite(inode->i_sb);
 
 	if (!IS_NOQUOTA(inode))
-		pxt2tra_credits += PXT4_MAXQUOTAS_DEL_BLOCKS(inode->i_sb);
+		extra_credits += PXT4_MAXQUOTAS_DEL_BLOCKS(inode->i_sb);
 
 	/*
 	 * Block bitmap, group descriptor, and inode are accounted in both
-	 * pxt4_blocks_for_truncate() and pxt2tra_credits. So subtract 3.
+	 * pxt4_blocks_for_truncate() and extra_credits. So subtract 3.
 	 */
 	handle = pxt4_journal_start(inode, PXT4_HT_TRUNCATE,
-			 pxt4_blocks_for_truncate(inode) + pxt2tra_credits - 3);
+			 pxt4_blocks_for_truncate(inode) + extra_credits - 3);
 	if (IS_ERR(handle)) {
 		pxt4_std_error(inode->i_sb, PTR_ERR(handle));
 		/*
@@ -306,7 +306,7 @@ void pxt4_evict_inode(struct inode *inode)
 
 	/* Remove xattr references. */
 	err = pxt4_xattr_delete_inode(handle, inode, &ea_inode_array,
-				      pxt2tra_credits);
+				      extra_credits);
 	if (err) {
 		pxt4_warning(inode->i_sb, "xattr delete (err %d)", err);
 stop_handle:
@@ -321,7 +321,7 @@ stop_handle:
 	 * Kill off the orphan record which pxt4_truncate created.
 	 * AKPM: I think this can be inside the above `if'.
 	 * Note that pxt4_orphan_del() has to be able to cope with the
-	 * deletion of a non-pxt2istent orphan - this is because we don't
+	 * deletion of a non-existent orphan - this is because we don't
 	 * know if pxt4_truncate() actually created an orphan record.
 	 * (Well, we could do this if we need to, but heck - it works)
 	 */
@@ -331,7 +331,7 @@ stop_handle:
 	/*
 	 * One subtle ordering requirement: if anything has gone wrong
 	 * (transaction abort, IO errors, whatever), then we can still
-	 * do these npxt2t steps (the fs will already have been marked as
+	 * do these next steps (the fs will already have been marked as
 	 * having errors), but we can't free the inode if the mark_dirty
 	 * fails.
 	 */
@@ -454,13 +454,13 @@ static void pxt4_map_blocks_es_recheck(handle_t *handle,
 	/*
 	 * There is a race window that the result is not the same.
 	 * e.g. xfstests #223 when dioread_nolock enables.  The reason
-	 * is that we lookup a block mapping in pxt2tent status tree with
-	 * out taking i_data_sem.  So at the time the unwritten pxt2tent
+	 * is that we lookup a block mapping in extent status tree with
+	 * out taking i_data_sem.  So at the time the unwritten extent
 	 * could be converted.
 	 */
 	down_read(&PXT4_I(inode)->i_data_sem);
 	if (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)) {
-		retval = pxt4_pxt2t_map_blocks(handle, inode, map, flags &
+		retval = pxt4_ext_map_blocks(handle, inode, map, flags &
 					     PXT4_GET_BLOCKS_KEEP_SIZE);
 	} else {
 		retval = pxt4_ind_map_blocks(handle, inode, map, flags &
@@ -469,15 +469,15 @@ static void pxt4_map_blocks_es_recheck(handle_t *handle,
 	up_read((&PXT4_I(inode)->i_data_sem));
 
 	/*
-	 * We don't check m_len because pxt2tent will be collpased in status
+	 * We don't check m_len because extent will be collpased in status
 	 * tree.  So the m_len might not equal.
 	 */
 	if (es_map->m_lblk != map->m_lblk ||
 	    es_map->m_flags != map->m_flags ||
 	    es_map->m_pblk != map->m_pblk) {
 		printk("ES cache assertion failed for inode: %lu "
-		       "es_cached pxt2 [%d/%d/%llu/%x] != "
-		       "found pxt2 [%d/%d/%llu/%x] retval %d flags %x\n",
+		       "es_cached ex [%d/%d/%llu/%x] != "
+		       "found ex [%d/%d/%llu/%x] retval %d flags %x\n",
 		       inode->i_ino, es_map->m_lblk, es_map->m_len,
 		       es_map->m_pblk, es_map->m_flags, map->m_lblk,
 		       map->m_len, map->m_pblk, map->m_flags,
@@ -494,7 +494,7 @@ static void pxt4_map_blocks_es_recheck(handle_t *handle,
  * and store the allocated blocks in the result buffer head and mark it
  * mapped.
  *
- * If file type is pxt2tents based, it will call pxt4_pxt2t_map_blocks(),
+ * If file type is extents based, it will call pxt4_ext_map_blocks(),
  * Otherwise, call with pxt4_ind_map_blocks() to handle indirect mapping
  * based files
  *
@@ -511,7 +511,7 @@ static void pxt4_map_blocks_es_recheck(handle_t *handle,
 int pxt4_map_blocks(handle_t *handle, struct inode *inode,
 		    struct pxt4_map_blocks *map, int flags)
 {
-	struct pxt2tent_status es;
+	struct extent_status es;
 	int retval;
 	int ret = 0;
 #ifdef ES_AGGRESSIVE_TEST
@@ -521,7 +521,7 @@ int pxt4_map_blocks(handle_t *handle, struct inode *inode,
 #endif
 
 	map->m_flags = 0;
-	pxt2t_debug("pxt4_map_blocks(): inode %lu, flag %d, max_blocks %u,"
+	ext_debug("pxt4_map_blocks(): inode %lu, flag %d, max_blocks %u,"
 		  "logical block %lu\n", inode->i_ino, flags, map->m_len,
 		  (unsigned long) map->m_lblk);
 
@@ -535,8 +535,8 @@ int pxt4_map_blocks(handle_t *handle, struct inode *inode,
 	if (unlikely(map->m_lblk >= EXT_MAX_BLOCKS))
 		return -EFSCORRUPTED;
 
-	/* Lookup pxt2tent status tree firstly */
-	if (pxt4_es_lookup_pxt2tent(inode, map->m_lblk, NULL, &es)) {
+	/* Lookup extent status tree firstly */
+	if (pxt4_es_lookup_extent(inode, map->m_lblk, NULL, &es)) {
 		if (pxt4_es_is_written(&es) || pxt4_es_is_unwritten(&es)) {
 			map->m_pblk = pxt4_es_pblock(&es) +
 					map->m_lblk - es.es_lblk;
@@ -569,7 +569,7 @@ int pxt4_map_blocks(handle_t *handle, struct inode *inode,
 	 */
 	down_read(&PXT4_I(inode)->i_data_sem);
 	if (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)) {
-		retval = pxt4_pxt2t_map_blocks(handle, inode, map, flags &
+		retval = pxt4_ext_map_blocks(handle, inode, map, flags &
 					     PXT4_GET_BLOCKS_KEEP_SIZE);
 	} else {
 		retval = pxt4_ind_map_blocks(handle, inode, map, flags &
@@ -593,7 +593,7 @@ int pxt4_map_blocks(handle_t *handle, struct inode *inode,
 		    pxt4_es_scan_range(inode, &pxt4_es_is_delayed, map->m_lblk,
 				       map->m_lblk + map->m_len - 1))
 			status |= EXTENT_STATUS_DELAYED;
-		ret = pxt4_es_insert_pxt2tent(inode, map->m_lblk,
+		ret = pxt4_es_insert_extent(inode, map->m_lblk,
 					    map->m_len, map->m_pblk, status);
 		if (ret < 0)
 			retval = ret;
@@ -615,26 +615,26 @@ found:
 	 * Returns if the blocks have already allocated
 	 *
 	 * Note that if blocks have been preallocated
-	 * pxt4_pxt2t_get_block() returns the create = 0
+	 * pxt4_ext_get_block() returns the create = 0
 	 * with buffer head unmapped.
 	 */
 	if (retval > 0 && map->m_flags & PXT4_MAP_MAPPED)
 		/*
-		 * If we need to convert pxt2tent to unwritten
+		 * If we need to convert extent to unwritten
 		 * we continue and do the actual work in
-		 * pxt4_pxt2t_map_blocks()
+		 * pxt4_ext_map_blocks()
 		 */
 		if (!(flags & PXT4_GET_BLOCKS_CONVERT_UNWRITTEN))
 			return retval;
 
 	/*
-	 * Here we clear m_flags because after allocating an new pxt2tent,
+	 * Here we clear m_flags because after allocating an new extent,
 	 * it will be set again.
 	 */
 	map->m_flags &= ~PXT4_MAP_FLAGS;
 
 	/*
-	 * New blocks allocate and/or writing to unwritten pxt2tent
+	 * New blocks allocate and/or writing to unwritten extent
 	 * will possibly result in updating i_data, so we take
 	 * the write lock of i_data_sem, and call get_block()
 	 * with create == 1 flag.
@@ -646,7 +646,7 @@ found:
 	 * could have changed the inode type in between
 	 */
 	if (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)) {
-		retval = pxt4_pxt2t_map_blocks(handle, inode, map, flags);
+		retval = pxt4_ext_map_blocks(handle, inode, map, flags);
 	} else {
 		retval = pxt4_ind_map_blocks(handle, inode, map, flags);
 
@@ -662,7 +662,7 @@ found:
 		/*
 		 * Update reserved blocks/metadata blocks after successful
 		 * block allocation which had been deferred till now. We don't
-		 * support fallocate for non pxt2tent files. So we can update
+		 * support fallocate for non extent files. So we can update
 		 * reserve space here.
 		 */
 		if ((retval > 0) &&
@@ -682,7 +682,7 @@ found:
 		}
 
 		/*
-		 * We have to zeroout blocks before inserting them into pxt2tent
+		 * We have to zeroout blocks before inserting them into extent
 		 * status tree. Otherwise someone could look them up there and
 		 * use them before they are really zeroed. We also have to
 		 * unmap metadata before zeroing as otherwise writeback can
@@ -700,11 +700,11 @@ found:
 		}
 
 		/*
-		 * If the pxt2tent has been zeroed out, we don't need to update
-		 * pxt2tent status tree.
+		 * If the extent has been zeroed out, we don't need to update
+		 * extent status tree.
 		 */
 		if ((flags & PXT4_GET_BLOCKS_PRE_IO) &&
-		    pxt4_es_lookup_pxt2tent(inode, map->m_lblk, NULL, &es)) {
+		    pxt4_es_lookup_extent(inode, map->m_lblk, NULL, &es)) {
 			if (pxt4_es_is_written(&es))
 				goto out_sem;
 		}
@@ -715,7 +715,7 @@ found:
 		    pxt4_es_scan_range(inode, &pxt4_es_is_delayed, map->m_lblk,
 				       map->m_lblk + map->m_len - 1))
 			status |= EXTENT_STATUS_DELAYED;
-		ret = pxt4_es_insert_pxt2tent(inode, map->m_lblk, map->m_len,
+		ret = pxt4_es_insert_extent(inode, map->m_lblk, map->m_len,
 					    map->m_pblk, status);
 		if (ret < 0) {
 			retval = ret;
@@ -820,7 +820,7 @@ int pxt4_get_block(struct inode *inode, sector_t iblock,
 
 /*
  * Get block function used when preparing for buffered write if we require
- * creating an unwritten pxt2tent if blocks haven't been allocated.  The pxt2tent
+ * creating an unwritten extent if blocks haven't been allocated.  The extent
  * will be converted to written after the IO is complete.
  */
 int pxt4_get_block_unwritten(struct inode *inode, sector_t iblock,
@@ -866,11 +866,11 @@ retry:
 	return ret;
 }
 
-/* Get block function for DIO reads and writes to inodes without pxt2tents */
+/* Get block function for DIO reads and writes to inodes without extents */
 int pxt4_dio_get_block(struct inode *inode, sector_t iblock,
 		       struct buffer_head *bh, int create)
 {
-	/* We don't pxt2pect handle for direct IO */
+	/* We don't expect handle for direct IO */
 	WARN_ON_ONCE(pxt4_journal_current_handle());
 
 	if (!create)
@@ -879,8 +879,8 @@ int pxt4_dio_get_block(struct inode *inode, sector_t iblock,
 }
 
 /*
- * Get block function for AIO DIO writes when we create unwritten pxt2tent if
- * blocks are not allocated yet. The pxt2tent will be converted to written
+ * Get block function for AIO DIO writes when we create unwritten extent if
+ * blocks are not allocated yet. The extent will be converted to written
  * after IO is complete.
  */
 static int pxt4_dio_get_block_unwritten_async(struct inode *inode,
@@ -888,16 +888,16 @@ static int pxt4_dio_get_block_unwritten_async(struct inode *inode,
 {
 	int ret;
 
-	/* We don't pxt2pect handle for direct IO */
+	/* We don't expect handle for direct IO */
 	WARN_ON_ONCE(pxt4_journal_current_handle());
 
 	ret = pxt4_get_block_trans(inode, iblock, bh_result,
 				   PXT4_GET_BLOCKS_IO_CREATE_EXT);
 
 	/*
-	 * When doing DIO using unwritten pxt2tents, we need io_end to convert
-	 * unwritten pxt2tents to written on IO completion. We allocate io_end
-	 * once we spot unwritten pxt2tent and store it in b_private. Generic
+	 * When doing DIO using unwritten extents, we need io_end to convert
+	 * unwritten extents to written on IO completion. We allocate io_end
+	 * once we spot unwritten extent and store it in b_private. Generic
 	 * DIO code keeps b_private set and furthermore passes the value to
 	 * our completion callback in 'private' argument.
 	 */
@@ -918,8 +918,8 @@ static int pxt4_dio_get_block_unwritten_async(struct inode *inode,
 }
 
 /*
- * Get block function for non-AIO DIO writes when we create unwritten pxt2tent if
- * blocks are not allocated yet. The pxt2tent will be converted to written
+ * Get block function for non-AIO DIO writes when we create unwritten extent if
+ * blocks are not allocated yet. The extent will be converted to written
  * after IO is complete by pxt4_direct_IO_write().
  */
 static int pxt4_dio_get_block_unwritten_sync(struct inode *inode,
@@ -927,15 +927,15 @@ static int pxt4_dio_get_block_unwritten_sync(struct inode *inode,
 {
 	int ret;
 
-	/* We don't pxt2pect handle for direct IO */
+	/* We don't expect handle for direct IO */
 	WARN_ON_ONCE(pxt4_journal_current_handle());
 
 	ret = pxt4_get_block_trans(inode, iblock, bh_result,
 				   PXT4_GET_BLOCKS_IO_CREATE_EXT);
 
 	/*
-	 * Mark inode as having pending DIO writes to unwritten pxt2tents.
-	 * pxt4_direct_IO_write() checks this flag and converts pxt2tents to
+	 * Mark inode as having pending DIO writes to unwritten extents.
+	 * pxt4_direct_IO_write() checks this flag and converts extents to
 	 * written.
 	 */
 	if (!ret && buffer_unwritten(bh_result))
@@ -951,7 +951,7 @@ static int pxt4_dio_get_block_overwrite(struct inode *inode, sector_t iblock,
 
 	pxt4_debug("pxt4_dio_get_block_overwrite: inode %lu, create flag %d\n",
 		   inode->i_ino, create);
-	/* We don't pxt2pect handle for direct IO */
+	/* We don't expect handle for direct IO */
 	WARN_ON_ONCE(pxt4_journal_current_handle());
 
 	ret = _pxt4_get_block(inode, iblock, bh_result, 0);
@@ -1099,12 +1099,12 @@ int pxt4_walk_page_buffers(handle_t *handle,
 	unsigned block_start, block_end;
 	unsigned blocksize = head->b_size;
 	int err, ret = 0;
-	struct buffer_head *npxt2t;
+	struct buffer_head *next;
 
 	for (bh = head, block_start = 0;
 	     ret == 0 && (bh != head || !block_start);
-	     block_start = block_end, bh = npxt2t) {
-		npxt2t = bh->b_this_page;
+	     block_start = block_end, bh = next) {
+		next = bh->b_this_page;
 		block_end = block_start + blocksize;
 		if (block_end <= from || block_start >= to) {
 			if (partial && !buffer_uptodate(bh))
@@ -1192,7 +1192,7 @@ static int pxt4_block_write_begin(struct page *page, loff_t pos, unsigned len,
 		create_empty_buffers(page, blocksize, 0);
 	head = page_buffers(page);
 	bbits = ilog2(blocksize);
-	block = (sector_t)page->indpxt2 << (PAGE_SHIFT - bbits);
+	block = (sector_t)page->index << (PAGE_SHIFT - bbits);
 
 	for (bh = head, block_start = 0; bh != head || !block_start;
 	    block++, block_start = block_end, bh = bh->b_this_page) {
@@ -1272,7 +1272,7 @@ static int pxt4_write_begin(struct file *file, struct address_space *mapping,
 	handle_t *handle;
 	int retries = 0;
 	struct page *page;
-	pgoff_t indpxt2;
+	pgoff_t index;
 	unsigned from, to;
 
 	if (unlikely(pxt4_forced_shutdown(PXT4_SB(inode->i_sb))))
@@ -1284,7 +1284,7 @@ static int pxt4_write_begin(struct file *file, struct address_space *mapping,
 	 * we allocate blocks but write fails for some reason
 	 */
 	needed_blocks = pxt4_writepage_trans_blocks(inode) + 1;
-	indpxt2 = pos >> PAGE_SHIFT;
+	index = pos >> PAGE_SHIFT;
 	from = pos & (PAGE_SIZE - 1);
 	to = from + len;
 
@@ -1305,7 +1305,7 @@ static int pxt4_write_begin(struct file *file, struct address_space *mapping,
 	 * the page (if needed) without using GFP_NOFS.
 	 */
 retry_grab:
-	page = grab_cache_page_write_begin(mapping, indpxt2, flags);
+	page = grab_cache_page_write_begin(mapping, index, flags);
 	if (!page)
 		return -ENOMEM;
 	unlock_page(page);
@@ -1349,23 +1349,23 @@ retry_journal:
 	}
 
 	if (ret) {
-		bool pxt2tended = (pos + len > inode->i_size) &&
+		bool extended = (pos + len > inode->i_size) &&
 				!pxt4_verity_in_progress(inode);
 
 		unlock_page(page);
 		/*
 		 * __block_write_begin may have instantiated a few blocks
 		 * outside i_size.  Trim these off again. Don't need
-		 * i_size_read because we hold i_mutpxt2.
+		 * i_size_read because we hold i_mutex.
 		 *
 		 * Add inode to orphan list in case we crash before
 		 * truncate finishes
 		 */
-		if (pxt2tended && pxt4_can_truncate(inode))
+		if (extended && pxt4_can_truncate(inode))
 			pxt4_orphan_add(handle, inode);
 
 		pxt4_journal_stop(handle);
-		if (pxt2tended) {
+		if (extended) {
 			pxt4_truncate_failed_write(inode);
 			/*
 			 * If truncate failed early the inode might
@@ -1446,7 +1446,7 @@ static int pxt4_write_end(struct file *file,
 	put_page(page);
 
 	if (old_size < pos && !verity)
-		pagecache_isize_pxt2tended(inode, old_size, pos);
+		pagecache_isize_extended(inode, old_size, pos);
 	/*
 	 * Don't mark the inode dirty under page lock. First, it unnecessarily
 	 * makes the holding time of page lock longer. Second, it forces lock
@@ -1566,7 +1566,7 @@ static int pxt4_journalled_write_end(struct file *file,
 	put_page(page);
 
 	if (old_size < pos && !verity)
-		pagecache_isize_pxt2tended(inode, old_size, pos);
+		pagecache_isize_extended(inode, old_size, pos);
 
 	if (size_changed || inline_data) {
 		ret2 = pxt4_mark_inode_dirty(handle, inode);
@@ -1636,7 +1636,7 @@ void pxt4_da_release_space(struct inode *inode, int to_free)
 	struct pxt4_inode_info *ei = PXT4_I(inode);
 
 	if (!to_free)
-		return;		/* Nothing to release, pxt2it */
+		return;		/* Nothing to release, exit */
 
 	spin_lock(&PXT4_I(inode)->i_block_reservation_lock);
 
@@ -1674,11 +1674,11 @@ struct mpage_da_data {
 	struct writeback_control *wbc;
 
 	pgoff_t first_page;	/* The first page to write */
-	pgoff_t npxt2t_page;	/* Current page to pxt2amine */
-	pgoff_t last_page;	/* Last page to pxt2amine */
+	pgoff_t next_page;	/* Current page to examine */
+	pgoff_t last_page;	/* Last page to examine */
 	/*
 	 * Extent to map - this can be after first_page because that can be
-	 * fully mapped. We somewhat abuse m_flags to store whether the pxt2tent
+	 * fully mapped. We somewhat abuse m_flags to store whether the extent
 	 * is delalloc or unwritten.
 	 */
 	struct pxt4_map_blocks map;
@@ -1690,27 +1690,27 @@ static void mpage_release_unused_pages(struct mpage_da_data *mpd,
 				       bool invalidate)
 {
 	int nr_pages, i;
-	pgoff_t indpxt2, end;
+	pgoff_t index, end;
 	struct pagevec pvec;
 	struct inode *inode = mpd->inode;
 	struct address_space *mapping = inode->i_mapping;
 
-	/* This is necessary when npxt2t_page == 0. */
-	if (mpd->first_page >= mpd->npxt2t_page)
+	/* This is necessary when next_page == 0. */
+	if (mpd->first_page >= mpd->next_page)
 		return;
 
-	indpxt2 = mpd->first_page;
-	end   = mpd->npxt2t_page - 1;
+	index = mpd->first_page;
+	end   = mpd->next_page - 1;
 	if (invalidate) {
 		pxt4_lblk_t start, last;
-		start = indpxt2 << (PAGE_SHIFT - inode->i_blkbits);
+		start = index << (PAGE_SHIFT - inode->i_blkbits);
 		last = end << (PAGE_SHIFT - inode->i_blkbits);
-		pxt4_es_remove_pxt2tent(inode, start, last - start + 1);
+		pxt4_es_remove_extent(inode, start, last - start + 1);
 	}
 
 	pagevec_init(&pvec);
-	while (indpxt2 <= end) {
-		nr_pages = pagevec_lookup_range(&pvec, mapping, &indpxt2, end);
+	while (index <= end) {
+		nr_pages = pagevec_lookup_range(&pvec, mapping, &index, end);
 		if (nr_pages == 0)
 			break;
 		for (i = 0; i < nr_pages; i++) {
@@ -1758,7 +1758,7 @@ static int pxt4_bh_delay_or_unwritten(handle_t *handle, struct buffer_head *bh)
 }
 
 /*
- * pxt4_insert_delayed_block - adds a delayed block to the pxt2tents status
+ * pxt4_insert_delayed_block - adds a delayed block to the extents status
  *                             tree, incrementing the reserved cluster/block
  *                             count or making a pending reservation
  *                             where needed
@@ -1776,14 +1776,14 @@ static int pxt4_insert_delayed_block(struct inode *inode, pxt4_lblk_t lblk)
 
 	/*
 	 * If the cluster containing lblk is shared with a delayed,
-	 * written, or unwritten pxt2tent in a bigalloc file system, it's
+	 * written, or unwritten extent in a bigalloc file system, it's
 	 * already been accounted for and does not need to be reserved.
 	 * A pending reservation must be made for the cluster if it's
-	 * shared with a written or unwritten pxt2tent and doesn't already
-	 * have one.  Written and unwritten pxt2tents can be purged from the
-	 * pxt2tents status tree if the system is under memory pressure, so
-	 * it's necessary to pxt2amine the pxt2tent tree if a search of the
-	 * pxt2tents status tree doesn't get a match.
+	 * shared with a written or unwritten extent and doesn't already
+	 * have one.  Written and unwritten extents can be purged from the
+	 * extents status tree if the system is under memory pressure, so
+	 * it's necessary to examine the extent tree if a search of the
+	 * extents status tree doesn't get a match.
 	 */
 	if (sbi->s_cluster_ratio == 1) {
 		ret = pxt4_da_reserve_space(inode);
@@ -1826,7 +1826,7 @@ static int pxt4_da_map_blocks(struct inode *inode, sector_t iblock,
 			      struct pxt4_map_blocks *map,
 			      struct buffer_head *bh)
 {
-	struct pxt2tent_status es;
+	struct extent_status es;
 	int retval;
 	sector_t invalid_block = ~((sector_t) 0xffff);
 #ifdef ES_AGGRESSIVE_TEST
@@ -1839,12 +1839,12 @@ static int pxt4_da_map_blocks(struct inode *inode, sector_t iblock,
 		invalid_block = ~0;
 
 	map->m_flags = 0;
-	pxt2t_debug("pxt4_da_map_blocks(): inode %lu, max_blocks %u,"
+	ext_debug("pxt4_da_map_blocks(): inode %lu, max_blocks %u,"
 		  "logical block %lu\n", inode->i_ino, map->m_len,
 		  (unsigned long) map->m_lblk);
 
-	/* Lookup pxt2tent status tree firstly */
-	if (pxt4_es_lookup_pxt2tent(inode, iblock, NULL, &es)) {
+	/* Lookup extent status tree firstly */
+	if (pxt4_es_lookup_extent(inode, iblock, NULL, &es)) {
 		if (pxt4_es_is_hole(&es)) {
 			retval = 0;
 			down_read(&PXT4_I(inode)->i_data_sem);
@@ -1852,7 +1852,7 @@ static int pxt4_da_map_blocks(struct inode *inode, sector_t iblock,
 		}
 
 		/*
-		 * Delayed pxt2tent could be allocated by fallocate.
+		 * Delayed extent could be allocated by fallocate.
 		 * So we need to check it.
 		 */
 		if (pxt4_es_is_delayed(&es) && !pxt4_es_is_unwritten(&es)) {
@@ -1888,7 +1888,7 @@ static int pxt4_da_map_blocks(struct inode *inode, sector_t iblock,
 	if (pxt4_has_inline_data(inode))
 		retval = 0;
 	else if (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS))
-		retval = pxt4_pxt2t_map_blocks(NULL, inode, map, 0);
+		retval = pxt4_ext_map_blocks(NULL, inode, map, 0);
 	else
 		retval = pxt4_ind_map_blocks(NULL, inode, map, 0);
 
@@ -1924,7 +1924,7 @@ add_delayed:
 
 		status = map->m_flags & PXT4_MAP_UNWRITTEN ?
 				EXTENT_STATUS_UNWRITTEN : EXTENT_STATUS_WRITTEN;
-		ret = pxt4_es_insert_pxt2tent(inode, map->m_lblk, map->m_len,
+		ret = pxt4_es_insert_extent(inode, map->m_lblk, map->m_len,
 					    map->m_pblk, status);
 		if (ret != 0)
 			retval = ret;
@@ -1945,7 +1945,7 @@ out_unlock:
  * We also have b_blocknr = -1 and b_bdev initialized properly
  *
  * For unwritten buffer_head we have BH_Mapped, BH_New, BH_Unwritten set.
- * We also have b_blocknr = physicalblock mapping unwritten pxt2tent and b_bdev
+ * We also have b_blocknr = physicalblock mapping unwritten extent and b_bdev
  * initialized properly.
  */
 int pxt4_da_get_block_prep(struct inode *inode, sector_t iblock,
@@ -2011,7 +2011,7 @@ static int __pxt4_journalled_writepage(struct page *page,
 	ClearPageChecked(page);
 
 	if (inline_data) {
-		BUG_ON(page->indpxt2 != 0);
+		BUG_ON(page->index != 0);
 		BUG_ON(len > pxt4_get_max_inline_size(inode));
 		inode_bh = pxt4_journalled_write_inline_data(inode, len, page);
 		if (inode_bh == NULL)
@@ -2138,7 +2138,7 @@ static int pxt4_writepage(struct page *page,
 
 	trace_pxt4_writepage(page);
 	size = i_size_read(inode);
-	if (page->indpxt2 == size >> PAGE_SHIFT &&
+	if (page->index == size >> PAGE_SHIFT &&
 	    !pxt4_verity_in_progress(inode))
 		len = size & ~PAGE_MASK;
 	else
@@ -2146,7 +2146,7 @@ static int pxt4_writepage(struct page *page,
 
 	page_bufs = page_buffers(page);
 	/*
-	 * We cannot do block allocation or other pxt2tent handling in this
+	 * We cannot do block allocation or other extent handling in this
 	 * function. If there are buffers needing that, we have to redirty
 	 * the page. But we may reach here when we do a journal commit via
 	 * journal_submit_inode_data_buffers() and in that case we must write
@@ -2154,12 +2154,12 @@ static int pxt4_writepage(struct page *page,
 	 *
 	 * Also, if there is only one buffer per page (the fs block
 	 * size == the page size), if one buffer needs block
-	 * allocation or needs to modify the pxt2tent tree to clear the
+	 * allocation or needs to modify the extent tree to clear the
 	 * unwritten flag, we know that the page can't be written at
 	 * all, so we might as well refuse the write immediately.
 	 * Unfortunately if the block size != page size, we can't as
 	 * easily detect this case using pxt4_walk_page_buffers(), but
-	 * for the pxt2tremely common case, this is an optimization that
+	 * for the extremely common case, this is an optimization that
 	 * skips a useless round trip through pxt4_bio_write_page().
 	 */
 	if (pxt4_walk_page_buffers(NULL, page_bufs, 0, len, NULL,
@@ -2207,7 +2207,7 @@ static int mpage_submit_page(struct mpage_da_data *mpd, struct page *page)
 	loff_t size;
 	int err;
 
-	BUG_ON(page->indpxt2 != mpd->first_page);
+	BUG_ON(page->index != mpd->first_page);
 	clear_page_dirty_for_io(page);
 	/*
 	 * We have to be very careful here!  Nothing protects writeback path
@@ -2223,7 +2223,7 @@ static int mpage_submit_page(struct mpage_da_data *mpd, struct page *page)
 	 * after page tables are updated.
 	 */
 	size = i_size_read(mpd->inode);
-	if (page->indpxt2 == size >> PAGE_SHIFT &&
+	if (page->index == size >> PAGE_SHIFT &&
 	    !pxt4_verity_in_progress(mpd->inode))
 		len = size & ~PAGE_MASK;
 	else
@@ -2246,20 +2246,20 @@ static int mpage_submit_page(struct mpage_da_data *mpd, struct page *page)
 #define MAX_WRITEPAGES_EXTENT_LEN 2048
 
 /*
- * mpage_add_bh_to_pxt2tent - try to add bh to pxt2tent of blocks to map
+ * mpage_add_bh_to_extent - try to add bh to extent of blocks to map
  *
- * @mpd - pxt2tent of blocks
+ * @mpd - extent of blocks
  * @lblk - logical number of the block in the file
- * @bh - buffer head we want to add to the pxt2tent
+ * @bh - buffer head we want to add to the extent
  *
  * The function is used to collect contig. blocks in the same state. If the
  * buffer doesn't require mapping for writeback and we haven't started the
- * pxt2tent of buffers to map yet, the function returns 'true' immediately - the
+ * extent of buffers to map yet, the function returns 'true' immediately - the
  * caller can write the buffer right away. Otherwise the function returns true
- * if the block has been added to the pxt2tent, false if the block couldn't be
+ * if the block has been added to the extent, false if the block couldn't be
  * added.
  */
-static bool mpage_add_bh_to_pxt2tent(struct mpage_da_data *mpd, pxt4_lblk_t lblk,
+static bool mpage_add_bh_to_extent(struct mpage_da_data *mpd, pxt4_lblk_t lblk,
 				   struct buffer_head *bh)
 {
 	struct pxt4_map_blocks *map = &mpd->map;
@@ -2267,13 +2267,13 @@ static bool mpage_add_bh_to_pxt2tent(struct mpage_da_data *mpd, pxt4_lblk_t lblk
 	/* Buffer that doesn't need mapping for writeback? */
 	if (!buffer_dirty(bh) || !buffer_mapped(bh) ||
 	    (!buffer_delay(bh) && !buffer_unwritten(bh))) {
-		/* So far no pxt2tent to map => we write the buffer right away */
+		/* So far no extent to map => we write the buffer right away */
 		if (map->m_len == 0)
 			return true;
 		return false;
 	}
 
-	/* First block in the pxt2tent? */
+	/* First block in the extent? */
 	if (map->m_len == 0) {
 		/* We cannot map unless handle is started... */
 		if (!mpd->do_map)
@@ -2288,7 +2288,7 @@ static bool mpage_add_bh_to_pxt2tent(struct mpage_da_data *mpd, pxt4_lblk_t lblk
 	if (map->m_len >= MAX_WRITEPAGES_EXTENT_LEN)
 		return false;
 
-	/* Can we merge the block to our big pxt2tent? */
+	/* Can we merge the block to our big extent? */
 	if (lblk == map->m_lblk + map->m_len &&
 	    (bh->b_state & BH_FLAGS) == map->m_flags) {
 		map->m_len++;
@@ -2298,19 +2298,19 @@ static bool mpage_add_bh_to_pxt2tent(struct mpage_da_data *mpd, pxt4_lblk_t lblk
 }
 
 /*
- * mpage_process_page_bufs - submit page buffers for IO or add them to pxt2tent
+ * mpage_process_page_bufs - submit page buffers for IO or add them to extent
  *
- * @mpd - pxt2tent of blocks for mapping
+ * @mpd - extent of blocks for mapping
  * @head - the first buffer in the page
  * @bh - buffer we should start processing from
  * @lblk - logical number of the block in the file corresponding to @bh
  *
- * Walk through page buffers from @bh upto @head (pxt2clusive) and either submit
+ * Walk through page buffers from @bh upto @head (exclusive) and either submit
  * the page for IO if all buffers in this page were mapped and there's no
- * accumulated pxt2tent of buffers to map or add buffers in the page to the
- * pxt2tent of buffers to map. The function returns 1 if the caller can continue
- * by processing the npxt2t page, 0 if it should stop adding buffers to the
- * pxt2tent to map because we cannot pxt2tend it anymore. It can also return value
+ * accumulated extent of buffers to map or add buffers in the page to the
+ * extent of buffers to map. The function returns 1 if the caller can continue
+ * by processing the next page, 0 if it should stop adding buffers to the
+ * extent to map because we cannot extend it anymore. It can also return value
  * < 0 in case of error during IO submission.
  */
 static int mpage_process_page_bufs(struct mpage_da_data *mpd,
@@ -2329,8 +2329,8 @@ static int mpage_process_page_bufs(struct mpage_da_data *mpd,
 	do {
 		BUG_ON(buffer_locked(bh));
 
-		if (lblk >= blocks || !mpage_add_bh_to_pxt2tent(mpd, lblk, bh)) {
-			/* Found pxt2tent to map? */
+		if (lblk >= blocks || !mpage_add_bh_to_extent(mpd, lblk, bh)) {
+			/* Found extent to map? */
 			if (mpd->map.m_len)
 				return 0;
 			/* Buffer needs mapping and handle is not started? */
@@ -2350,17 +2350,17 @@ static int mpage_process_page_bufs(struct mpage_da_data *mpd,
 }
 
 /*
- * mpage_map_buffers - update buffers corresponding to changed pxt2tent and
+ * mpage_map_buffers - update buffers corresponding to changed extent and
  *		       submit fully mapped pages for IO
  *
- * @mpd - description of pxt2tent to map, on return npxt2t pxt2tent to map
+ * @mpd - description of extent to map, on return next extent to map
  *
- * Scan buffers corresponding to changed pxt2tent (we pxt2pect corresponding pages
- * to be already locked) and update buffer state according to new pxt2tent state.
+ * Scan buffers corresponding to changed extent (we expect corresponding pages
+ * to be already locked) and update buffer state according to new extent state.
  * We map delalloc buffers to their physical location, clear unwritten bits,
- * and mark buffers as uninit when we perform writes to unwritten pxt2tents
- * and do pxt2tent conversion after IO is finished. If the last page is not fully
- * mapped, we update @map to the npxt2t pxt2tent in the last page that needs
+ * and mark buffers as uninit when we perform writes to unwritten extents
+ * and do extent conversion after IO is finished. If the last page is not fully
+ * mapped, we update @map to the next extent in the last page that needs
  * mapping. Otherwise we submit the page for IO.
  */
 static int mpage_map_and_submit_buffers(struct mpage_da_data *mpd)
@@ -2395,8 +2395,8 @@ static int mpage_map_and_submit_buffers(struct mpage_da_data *mpd)
 					continue;
 				if (lblk >= mpd->map.m_lblk + mpd->map.m_len) {
 					/*
-					 * Buffer after end of mapped pxt2tent.
-					 * Find npxt2t buffer in the page to map.
+					 * Buffer after end of mapped extent.
+					 * Find next buffer in the page to map.
 					 */
 					mpd->map.m_len = 0;
 					mpd->map.m_flags = 0;
@@ -2442,17 +2442,17 @@ static int mpage_map_and_submit_buffers(struct mpage_da_data *mpd)
 	return 0;
 }
 
-static int mpage_map_one_pxt2tent(handle_t *handle, struct mpage_da_data *mpd)
+static int mpage_map_one_extent(handle_t *handle, struct mpage_da_data *mpd)
 {
 	struct inode *inode = mpd->inode;
 	struct pxt4_map_blocks *map = &mpd->map;
 	int get_blocks_flags;
 	int err, dioread_nolock;
 
-	trace_pxt4_da_write_pages_pxt2tent(inode, map);
+	trace_pxt4_da_write_pages_extent(inode, map);
 	/*
 	 * Call pxt4_map_blocks() to allocate any delayed allocation blocks, or
-	 * to convert an unwritten pxt2tent to be initialized (in the case
+	 * to convert an unwritten extent to be initialized (in the case
 	 * where we have written into one or more preallocated blocks).  It is
 	 * possible that we're going to need more metadata blocks than
 	 * previously reserved. However we must not fail because we're in
@@ -2491,26 +2491,26 @@ static int mpage_map_one_pxt2tent(handle_t *handle, struct mpage_da_data *mpd)
 }
 
 /*
- * mpage_map_and_submit_pxt2tent - map pxt2tent starting at mpd->lblk of length
+ * mpage_map_and_submit_extent - map extent starting at mpd->lblk of length
  *				 mpd->len and submit pages underlying it for IO
  *
  * @handle - handle for journal operations
- * @mpd - pxt2tent to map
+ * @mpd - extent to map
  * @give_up_on_write - we set this to true iff there is a fatal error and there
  *                     is no hope of writing the data. The caller should discard
  *                     dirty pages to avoid infinite loops.
  *
- * The function maps pxt2tent starting at mpd->lblk of length mpd->len. If it is
+ * The function maps extent starting at mpd->lblk of length mpd->len. If it is
  * delayed, blocks are allocated, if it is unwritten, we may need to convert
  * them to initialized or split the described range from larger unwritten
- * pxt2tent. Note that we need not map all the described range since allocation
- * can return less blocks or the range is covered by more unwritten pxt2tents. We
+ * extent. Note that we need not map all the described range since allocation
+ * can return less blocks or the range is covered by more unwritten extents. We
  * cannot map more because we are limited by reserved transaction credits. On
  * the other hand we always make sure that the last touched page is fully
  * mapped so that it can be written out (and thus forward progress is
  * guaranteed). After mapping we submit all mapped pages for IO.
  */
-static int mpage_map_and_submit_pxt2tent(handle_t *handle,
+static int mpage_map_and_submit_extent(handle_t *handle,
 				       struct mpage_da_data *mpd,
 				       bool *give_up_on_write)
 {
@@ -2523,7 +2523,7 @@ static int mpage_map_and_submit_pxt2tent(handle_t *handle,
 	mpd->io_submit.io_end->offset =
 				((loff_t)map->m_lblk) << inode->i_blkbits;
 	do {
-		err = mpage_map_one_pxt2tent(handle, mpd);
+		err = mpage_map_one_extent(handle, mpd);
 		if (err < 0) {
 			struct super_block *sb = inode->i_sb;
 
@@ -2560,7 +2560,7 @@ static int mpage_map_and_submit_pxt2tent(handle_t *handle,
 		progress = 1;
 		/*
 		 * Update buffer state, submit mapped pages, and get us new
-		 * pxt2tent to map
+		 * extent to map
 		 */
 		err = mpage_map_and_submit_buffers(mpd);
 		if (err < 0)
@@ -2597,10 +2597,10 @@ update_disksize:
 
 /*
  * Calculate the total number of credits to reserve for one writepages
- * iteration. This is called from pxt4_writepages(). We map an pxt2tent of
+ * iteration. This is called from pxt4_writepages(). We map an extent of
  * up to MAX_WRITEPAGES_EXTENT_LEN blocks and then we go on and finish mapping
  * the last partial page. So in total we can map MAX_WRITEPAGES_EXTENT_LEN +
- * bpp - 1 blocks in bpp different pxt2tents.
+ * bpp - 1 blocks in bpp different extents.
  */
 static int pxt4_da_writepages_trans_blocks(struct inode *inode)
 {
@@ -2611,16 +2611,16 @@ static int pxt4_da_writepages_trans_blocks(struct inode *inode)
 }
 
 /*
- * mpage_prepare_pxt2tent_to_map - find & lock contiguous range of dirty pages
- * 				 and underlying pxt2tent to map
+ * mpage_prepare_extent_to_map - find & lock contiguous range of dirty pages
+ * 				 and underlying extent to map
  *
  * @mpd - where to look for pages
  *
  * Walk dirty pages in the mapping. If they are fully mapped, submit them for
  * IO immediately. When we find a page which isn't mapped we start accumulating
- * pxt2tent of buffers underlying these pages that needs mapping (formed by
+ * extent of buffers underlying these pages that needs mapping (formed by
  * either delayed or unwritten buffers). We also lock the pages containing
- * these buffers. The pxt2tent found is returned in @mpd structure (starting at
+ * these buffers. The extent found is returned in @mpd structure (starting at
  * mpd->lblk with length mpd->len blocks).
  *
  * Note that this function can attach bios to one io_end structure which are
@@ -2628,13 +2628,13 @@ static int pxt4_da_writepages_trans_blocks(struct inode *inode)
  * unnecessary complication, it is actually inevitable in blocksize < pagesize
  * case as we need to track IO to all buffers underlying a page in one io_end.
  */
-static int mpage_prepare_pxt2tent_to_map(struct mpage_da_data *mpd)
+static int mpage_prepare_extent_to_map(struct mpage_da_data *mpd)
 {
 	struct address_space *mapping = mpd->inode->i_mapping;
 	struct pagevec pvec;
 	unsigned int nr_pages;
 	long left = mpd->wbc->nr_to_write;
-	pgoff_t indpxt2 = mpd->first_page;
+	pgoff_t index = mpd->first_page;
 	pgoff_t end = mpd->last_page;
 	xa_mark_t tag;
 	int i, err = 0;
@@ -2649,9 +2649,9 @@ static int mpage_prepare_pxt2tent_to_map(struct mpage_da_data *mpd)
 
 	pagevec_init(&pvec);
 	mpd->map.m_len = 0;
-	mpd->npxt2t_page = indpxt2;
-	while (indpxt2 <= end) {
-		nr_pages = pagevec_lookup_range_tag(&pvec, mapping, &indpxt2, end,
+	mpd->next_page = index;
+	while (index <= end) {
+		nr_pages = pagevec_lookup_range_tag(&pvec, mapping, &index, end,
 				tag);
 		if (nr_pages == 0)
 			goto out;
@@ -2671,7 +2671,7 @@ static int mpage_prepare_pxt2tent_to_map(struct mpage_da_data *mpd)
 				goto out;
 
 			/* If we can't merge this page, we are done. */
-			if (mpd->map.m_len > 0 && mpd->npxt2t_page != page->indpxt2)
+			if (mpd->map.m_len > 0 && mpd->next_page != page->index)
 				goto out;
 
 			lock_page(page);
@@ -2694,10 +2694,10 @@ static int mpage_prepare_pxt2tent_to_map(struct mpage_da_data *mpd)
 			BUG_ON(PageWriteback(page));
 
 			if (mpd->map.m_len == 0)
-				mpd->first_page = page->indpxt2;
-			mpd->npxt2t_page = page->indpxt2 + 1;
+				mpd->first_page = page->index;
+			mpd->next_page = page->index + 1;
 			/* Add all dirty buffers to mpd */
-			lblk = ((pxt4_lblk_t)page->indpxt2) <<
+			lblk = ((pxt4_lblk_t)page->index) <<
 				(PAGE_SHIFT - blkbits);
 			head = page_buffers(page);
 			err = mpage_process_page_bufs(mpd, head, head, lblk);
@@ -2718,7 +2718,7 @@ out:
 static int pxt4_writepages(struct address_space *mapping,
 			   struct writeback_control *wbc)
 {
-	pgoff_t	writeback_indpxt2 = 0;
+	pgoff_t	writeback_index = 0;
 	long nr_to_write = wbc->nr_to_write;
 	int range_whole = 0;
 	int cycled = 1;
@@ -2786,7 +2786,7 @@ static int pxt4_writepages(struct address_space *mapping,
 
 	if (pxt4_should_dioread_nolock(inode)) {
 		/*
-		 * We may need to convert up to one pxt2tent per block in
+		 * We may need to convert up to one extent per block in
 		 * the page and we may dirty the inode.
 		 */
 		rsv_blocks = 1 + pxt4_chunk_trans_blocks(inode,
@@ -2797,10 +2797,10 @@ static int pxt4_writepages(struct address_space *mapping,
 		range_whole = 1;
 
 	if (wbc->range_cyclic) {
-		writeback_indpxt2 = mapping->writeback_indpxt2;
-		if (writeback_indpxt2)
+		writeback_index = mapping->writeback_index;
+		if (writeback_index)
 			cycled = 0;
-		mpd.first_page = writeback_indpxt2;
+		mpd.first_page = writeback_index;
 		mpd.last_page = -1;
 	} else {
 		mpd.first_page = wbc->range_start >> PAGE_SHIFT;
@@ -2828,7 +2828,7 @@ retry:
 		ret = -ENOMEM;
 		goto unplug;
 	}
-	ret = mpage_prepare_pxt2tent_to_map(&mpd);
+	ret = mpage_prepare_extent_to_map(&mpd);
 	/* Unlock pages we didn't use */
 	mpage_release_unused_pages(&mpd, false);
 	/* Submit prepared bio */
@@ -2839,7 +2839,7 @@ retry:
 		goto unplug;
 
 	while (!done && mpd.first_page <= mpd.last_page) {
-		/* For each pxt2tent of pages we use new io_end */
+		/* For each extent of pages we use new io_end */
 		mpd.io_submit.io_end = pxt4_init_io_end(inode, GFP_KERNEL);
 		if (!mpd.io_submit.io_end) {
 			ret = -ENOMEM;
@@ -2847,7 +2847,7 @@ retry:
 		}
 
 		/*
-		 * We have two constraints: We find one pxt2tent to map and we
+		 * We have two constraints: We find one extent to map and we
 		 * must always write out whole page (makes a difference when
 		 * blocksize < pagesize) so that we don't block on IO when we
 		 * try to write out the rest of the page. Journalled mode is
@@ -2872,14 +2872,14 @@ retry:
 		mpd.do_map = 1;
 
 		trace_pxt4_da_write_pages(inode, mpd.first_page, mpd.wbc);
-		ret = mpage_prepare_pxt2tent_to_map(&mpd);
+		ret = mpage_prepare_extent_to_map(&mpd);
 		if (!ret) {
 			if (mpd.map.m_len)
-				ret = mpage_map_and_submit_pxt2tent(handle, &mpd,
+				ret = mpage_map_and_submit_extent(handle, &mpd,
 					&give_up_on_write);
 			else {
 				/*
-				 * We scanned the whole range (or pxt2hausted
+				 * We scanned the whole range (or exhausted
 				 * nr_to_write), submitted what was mapped and
 				 * didn't find anything needing mapping. We are
 				 * done.
@@ -2894,7 +2894,7 @@ retry:
 		 * complete or on page lock to be released.  In that
 		 * case, we have to wait until after after we have
 		 * submitted all the IO, released page locks we hold,
-		 * and dropped io_end reference (for pxt2tent conversion
+		 * and dropped io_end reference (for extent conversion
 		 * to be able to complete) before stopping the handle.
 		 */
 		if (!pxt4_handle_valid(handle) || handle->h_sync == 0) {
@@ -2912,7 +2912,7 @@ retry:
 		 * to be careful and use deferred io_end finishing if
 		 * we are still holding the transaction as we can
 		 * release the last reference to io_end which may end
-		 * up doing unwritten pxt2tent conversion.
+		 * up doing unwritten extent conversion.
 		 */
 		if (handle) {
 			pxt4_put_io_end_defer(mpd.io_submit.io_end);
@@ -2939,18 +2939,18 @@ unplug:
 	blk_finish_plug(&plug);
 	if (!ret && !cycled && wbc->nr_to_write > 0) {
 		cycled = 1;
-		mpd.last_page = writeback_indpxt2 - 1;
+		mpd.last_page = writeback_index - 1;
 		mpd.first_page = 0;
 		goto retry;
 	}
 
-	/* Update indpxt2 */
+	/* Update index */
 	if (wbc->range_cyclic || (range_whole && wbc->nr_to_write > 0))
 		/*
-		 * Set the writeback_indpxt2 so that range_cyclic
+		 * Set the writeback_index so that range_cyclic
 		 * mode will write it back later
 		 */
-		mapping->writeback_indpxt2 = mpd.first_page;
+		mapping->writeback_index = mpd.first_page;
 
 out_writepages:
 	trace_pxt4_writepages_result(inode, wbc, ret,
@@ -3033,14 +3033,14 @@ static int pxt4_da_write_begin(struct file *file, struct address_space *mapping,
 {
 	int ret, retries = 0;
 	struct page *page;
-	pgoff_t indpxt2;
+	pgoff_t index;
 	struct inode *inode = mapping->host;
 	handle_t *handle;
 
 	if (unlikely(pxt4_forced_shutdown(PXT4_SB(inode->i_sb))))
 		return -EIO;
 
-	indpxt2 = pos >> PAGE_SHIFT;
+	index = pos >> PAGE_SHIFT;
 
 	if (pxt4_nonda_switch(inode->i_sb) || S_ISLNK(inode->i_mode) ||
 	    pxt4_verity_in_progress(inode)) {
@@ -3069,7 +3069,7 @@ static int pxt4_da_write_begin(struct file *file, struct address_space *mapping,
 	 * the page (if needed) without using GFP_NOFS.
 	 */
 retry_grab:
-	page = grab_cache_page_write_begin(mapping, indpxt2, flags);
+	page = grab_cache_page_write_begin(mapping, index, flags);
 	if (!page)
 		return -ENOMEM;
 	unlock_page(page);
@@ -3111,7 +3111,7 @@ retry_journal:
 		/*
 		 * block_write_begin may have instantiated a few blocks
 		 * outside i_size.  Trim these off again. Don't need
-		 * i_size_read because we hold i_mutpxt2.
+		 * i_size_read because we hold i_mutex.
 		 */
 		if (pos + len > inode->i_size)
 			pxt4_truncate_failed_write(inode);
@@ -3228,7 +3228,7 @@ int pxt4_alloc_da_blocks(struct inode *inode)
 	 * pxt4_writepages() ->
 	 *    write_cache_pages() ---> (via passed in callback function)
 	 *        __mpage_da_writepage() -->
-	 *           mpage_add_bh_to_pxt2tent()
+	 *           mpage_add_bh_to_extent()
 	 *           mpage_da_map_blocks()
 	 *
 	 * The problem is that write_cache_pages(), located in
@@ -3238,11 +3238,11 @@ int pxt4_alloc_da_blocks(struct inode *inode)
 	 *
 	 * We could call write_cache_pages(), and then redirty all of
 	 * the pages by calling redirty_page_for_writepage() but that
-	 * would be ugly in the pxt2treme.  So instead we would need to
+	 * would be ugly in the extreme.  So instead we would need to
 	 * replicate parts of the code in the above functions,
 	 * simplifying them because we wouldn't actually intend to
 	 * write out the pages, but rather only collect contiguous
-	 * logical block pxt2tents, call the multi-block allocator, and
+	 * logical block extents, call the multi-block allocator, and
 	 * then update the buffer heads with the block allocations.
 	 *
 	 * For now, though, we'll cheat by calling filemap_flush(),
@@ -3264,7 +3264,7 @@ int pxt4_alloc_da_blocks(struct inode *inode)
  * awaiting writeback in the kernel's buffer cache.
  *
  * So, if we see any bmap calls here on a modified, data-journaled file,
- * take pxt2tra steps to flush any blocks which might be in the cache.
+ * take extra steps to flush any blocks which might be in the cache.
  */
 static sector_t pxt4_bmap(struct address_space *mapping, sector_t block)
 {
@@ -3292,9 +3292,9 @@ static sector_t pxt4_bmap(struct address_space *mapping, sector_t block)
 	    pxt4_test_inode_state(inode, PXT4_STATE_JDATA)) {
 		/*
 		 * This is a REALLY heavyweight approach, but the use of
-		 * bmap on dirty files is pxt2pected to be pxt2tremely rare:
+		 * bmap on dirty files is expected to be extremely rare:
 		 * only if we run lilo or swapon on a freshly made file
-		 * do we pxt2pect this to happen.
+		 * do we expect this to happen.
 		 *
 		 * (bmap requires CAP_SYS_RAWIO so this does not
 		 * represent an unprivileged user DOS attack --- we'd be
@@ -3455,9 +3455,9 @@ static int pxt4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 
 		if (ret == 0) {
 			pxt4_lblk_t end = map.m_lblk + map.m_len - 1;
-			struct pxt2tent_status es;
+			struct extent_status es;
 
-			pxt4_es_find_pxt2tent_range(inode, &pxt4_es_is_delayed,
+			pxt4_es_find_extent_range(inode, &pxt4_es_is_delayed,
 						  map.m_lblk, end, &es);
 
 			if (!es.es_len || es.es_lblk > end) {
@@ -3487,9 +3487,9 @@ static int pxt4_iomap_begin(struct inode *inode, loff_t offset, loff_t length,
 retry:
 		/*
 		 * Either we allocate blocks and then we don't get unwritten
-		 * pxt2tent so we have reserved enough credits, or the blocks
+		 * extent so we have reserved enough credits, or the blocks
 		 * are already allocated and unwritten and in that case
-		 * pxt2tent conversion fits in the credits as well.
+		 * extent conversion fits in the credits as well.
 		 */
 		handle = pxt4_journal_start(inode, PXT4_HT_MAP_BLOCKS,
 					    dio_credits);
@@ -3598,7 +3598,7 @@ static int pxt4_iomap_end(struct inode *inode, loff_t offset, loff_t length,
 			truncate = true;
 	}
 	/*
-	 * Remove inode from orphan list if we were pxt2tending a inode and
+	 * Remove inode from orphan list if we were extending a inode and
 	 * everything went fine.
 	 */
 	if (!truncate && inode->i_nlink &&
@@ -3633,12 +3633,12 @@ static int pxt4_end_io_dio(struct kiocb *iocb, loff_t offset,
 	if (!io_end)
 		return 0;
 
-	pxt2t_debug("pxt4_end_io_dio(): io_end 0x%p "
+	ext_debug("pxt4_end_io_dio(): io_end 0x%p "
 		  "for inode %lu, iocb 0x%p, offset %llu, size %zd\n",
 		  io_end, io_end->inode->i_ino, iocb, offset, size);
 
 	/*
-	 * Error during AIO DIO. We cannot convert unwritten pxt2tents as the
+	 * Error during AIO DIO. We cannot convert unwritten extents as the
 	 * data was not written. Just clear the unwritten flag and drop io_end.
 	 */
 	if (size <= 0) {
@@ -3655,20 +3655,20 @@ static int pxt4_end_io_dio(struct kiocb *iocb, loff_t offset,
 /*
  * Handling of direct IO writes.
  *
- * For pxt4 pxt2tent files, pxt4 will do direct-io write even to holes,
- * preallocated pxt2tents, and those write pxt2tend the file, no need to
+ * For pxt4 extent files, pxt4 will do direct-io write even to holes,
+ * preallocated extents, and those write extend the file, no need to
  * fall back to buffered IO.
  *
  * For holes, we fallocate those blocks, mark them as unwritten
  * If those blocks were preallocated, we mark sure they are split, but
  * still keep the range to write as unwritten.
  *
- * The unwritten pxt2tents will be converted to written when DIO is completed.
+ * The unwritten extents will be converted to written when DIO is completed.
  * For async direct IO, since the IO may still pending when return, we
  * set up an end_io call back function, which will do the conversion
  * when async direct IO completed.
  *
- * If the O_DIRECT write will pxt2tend the file then add this inode to the
+ * If the O_DIRECT write will extend the file then add this inode to the
  * orphan list.  So recovery will truncate it back to the original size
  * if the machine crashes during the write.
  *
@@ -3708,32 +3708,32 @@ static ssize_t pxt4_direct_IO_write(struct kiocb *iocb, struct iov_iter *iter)
 	BUG_ON(iocb->private == NULL);
 
 	/*
-	 * Make all waiters for direct IO properly wait also for pxt2tent
+	 * Make all waiters for direct IO properly wait also for extent
 	 * conversion. This also disallows race between truncate() and
-	 * overwrite DIO as i_dio_count needs to be incremented under i_mutpxt2.
+	 * overwrite DIO as i_dio_count needs to be incremented under i_mutex.
 	 */
 	inode_dio_begin(inode);
 
-	/* If we do a overwrite dio, i_mutpxt2 locking can be released */
+	/* If we do a overwrite dio, i_mutex locking can be released */
 	overwrite = *((int *)iocb->private);
 
 	if (overwrite)
 		inode_unlock(inode);
 
 	/*
-	 * For pxt2tent mapped files we could direct write to holes and fallocate.
+	 * For extent mapped files we could direct write to holes and fallocate.
 	 *
 	 * Allocated blocks to fill the hole are marked as unwritten to prevent
-	 * parallel buffered read to pxt2pose the stale data before DIO complete
+	 * parallel buffered read to expose the stale data before DIO complete
 	 * the data IO.
 	 *
-	 * As to previously fallocated pxt2tents, pxt4 get_block will just simply
-	 * mark the buffer mapped but still keep the pxt2tents unwritten.
+	 * As to previously fallocated extents, pxt4 get_block will just simply
+	 * mark the buffer mapped but still keep the extents unwritten.
 	 *
-	 * For non AIO case, we will convert those unwritten pxt2tents to written
+	 * For non AIO case, we will convert those unwritten extents to written
 	 * after return back from blockdev_direct_IO. That way we save us from
 	 * allocating io_end structure and also the overhead of offloading
-	 * the pxt2tent convertion to a workqueue.
+	 * the extent convertion to a workqueue.
 	 *
 	 * For async DIO, the conversion needs to be deferred when the
 	 * IO is completed. The pxt4 end_io callback function will be
@@ -3765,7 +3765,7 @@ static ssize_t pxt4_direct_IO_write(struct kiocb *iocb, struct iov_iter *iter)
 		 * for non AIO case, since the IO is already
 		 * completed, we could do the conversion right here
 		 */
-		err = pxt4_convert_unwritten_pxt2tents(NULL, inode,
+		err = pxt4_convert_unwritten_extents(NULL, inode,
 						     offset, ret);
 		if (err < 0)
 			ret = err;
@@ -3773,14 +3773,14 @@ static ssize_t pxt4_direct_IO_write(struct kiocb *iocb, struct iov_iter *iter)
 	}
 
 	inode_dio_end(inode);
-	/* take i_mutpxt2 locking again if we do a ovewrite dio */
+	/* take i_mutex locking again if we do a ovewrite dio */
 	if (overwrite)
 		inode_lock(inode);
 
 	if (ret < 0 && final_size > inode->i_size)
 		pxt4_truncate_failed_write(inode);
 
-	/* Handle pxt2tending of i_size after direct IO write */
+	/* Handle extending of i_size after direct IO write */
 	if (orphan) {
 		int err;
 
@@ -3788,7 +3788,7 @@ static ssize_t pxt4_direct_IO_write(struct kiocb *iocb, struct iov_iter *iter)
 		handle = pxt4_journal_start(inode, PXT4_HT_INODE, 2);
 		if (IS_ERR(handle)) {
 			/*
-			 * We wrote the data but cannot pxt2tend
+			 * We wrote the data but cannot extend
 			 * i_size. Bail out. In async io case, we do
 			 * not return error here because we have
 			 * already submmitted the corresponding
@@ -3895,7 +3895,7 @@ static ssize_t pxt4_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
 		ret = pxt4_direct_IO_read(iocb, iter);
 	else
 		ret = pxt4_direct_IO_write(iocb, iter);
-	trace_pxt4_direct_IO_pxt2it(inode, offset, count, iov_iter_rw(iter), ret);
+	trace_pxt4_direct_IO_exit(inode, offset, count, iov_iter_rw(iter), ret);
 	return ret;
 }
 
@@ -3907,9 +3907,9 @@ static ssize_t pxt4_direct_IO(struct kiocb *iocb, struct iov_iter *iter)
  *
  * We cannot just dirty the page and leave attached buffers clean, because the
  * buffers' dirty state is "definitive".  We cannot just set the buffers dirty
- * or jbddirty because all the journalling code will pxt2plode.
+ * or jbddirty because all the journalling code will explode.
  *
- * So what we do is to mark the page "pending dirty" and npxt2t time writepage
+ * So what we do is to mark the page "pending dirty" and next time writepage
  * is called, propagate that into the buffers appropriately.
  */
 static int pxt4_journalled_set_page_dirty(struct page *page)
@@ -4006,7 +4006,7 @@ void pxt4_set_aops(struct inode *inode)
 static int __pxt4_block_zero_page_range(handle_t *handle,
 		struct address_space *mapping, loff_t from, loff_t length)
 {
-	pxt4_fsblk_t indpxt2 = from >> PAGE_SHIFT;
+	pxt4_fsblk_t index = from >> PAGE_SHIFT;
 	unsigned offset = from & (PAGE_SIZE-1);
 	unsigned blocksize, pos;
 	pxt4_lblk_t iblock;
@@ -4022,7 +4022,7 @@ static int __pxt4_block_zero_page_range(handle_t *handle,
 
 	blocksize = inode->i_sb->s_blocksize;
 
-	iblock = indpxt2 << (PAGE_SHIFT - inode->i_sb->s_blocksize_bits);
+	iblock = index << (PAGE_SHIFT - inode->i_sb->s_blocksize_bits);
 
 	if (!page_has_buffers(page))
 		create_empty_buffers(page, blocksize, 0);
@@ -4061,7 +4061,7 @@ static int __pxt4_block_zero_page_range(handle_t *handle,
 		if (!buffer_uptodate(bh))
 			goto unlock;
 		if (S_ISREG(inode->i_mode) && IS_ENCRYPTED(inode)) {
-			/* We pxt2pect the key to be set. */
+			/* We expect the key to be set. */
 			BUG_ON(!fscrypt_has_encryption_key(inode));
 			WARN_ON_ONCE(fscrypt_decrypt_pagecache_blocks(
 					page, blocksize, bh_offset(bh)));
@@ -4095,7 +4095,7 @@ unlock:
 /*
  * pxt4_block_zero_page_range() zeros out a mapping of length 'length'
  * starting from file offset 'from'.  The range to be zero'd must
- * be contained with in one block.  If the specified range pxt2ceeds
+ * be contained with in one block.  If the specified range exceeds
  * the end of the block it will be shortened to end of the block
  * that cooresponds to 'from'
  */
@@ -4303,10 +4303,10 @@ int pxt4_punch_hole(struct inode *inode, loff_t offset, loff_t length)
 
 	/* No need to punch hole beyond i_size */
 	if (offset >= inode->i_size)
-		goto out_mutpxt2;
+		goto out_mutex;
 
 	/*
-	 * If the hole pxt2tends beyond i_size, set the hole
+	 * If the hole extends beyond i_size, set the hole
 	 * to end after the page that contains i_size
 	 */
 	if (offset + length > inode->i_size) {
@@ -4323,11 +4323,11 @@ int pxt4_punch_hole(struct inode *inode, loff_t offset, loff_t length)
 		 */
 		ret = pxt4_inode_attach_jinode(inode);
 		if (ret < 0)
-			goto out_mutpxt2;
+			goto out_mutex;
 
 	}
 
-	/* Wait all pxt2isting dio workers, newcomers will block on i_mutpxt2 */
+	/* Wait all existing dio workers, newcomers will block on i_mutex */
 	inode_dio_wait(inode);
 
 	/*
@@ -4378,7 +4378,7 @@ int pxt4_punch_hole(struct inode *inode, loff_t offset, loff_t length)
 		down_write(&PXT4_I(inode)->i_data_sem);
 		pxt4_discard_preallocations(inode);
 
-		ret = pxt4_es_remove_pxt2tent(inode, first_block,
+		ret = pxt4_es_remove_extent(inode, first_block,
 					    stop_block - first_block);
 		if (ret) {
 			up_write(&PXT4_I(inode)->i_data_sem);
@@ -4386,7 +4386,7 @@ int pxt4_punch_hole(struct inode *inode, loff_t offset, loff_t length)
 		}
 
 		if (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS))
-			ret = pxt4_pxt2t_remove_space(inode, first_block,
+			ret = pxt4_ext_remove_space(inode, first_block,
 						    stop_block - 1);
 		else
 			ret = pxt4_ind_remove_space(handle, inode, first_block,
@@ -4405,7 +4405,7 @@ out_stop:
 	pxt4_journal_stop(handle);
 out_dio:
 	up_write(&PXT4_I(inode)->i_mmap_sem);
-out_mutpxt2:
+out_mutex:
 	inode_unlock(inode);
 	return ret;
 }
@@ -4474,7 +4474,7 @@ int pxt4_truncate(struct inode *inode)
 	/*
 	 * There is a possibility that we're either freeing the inode
 	 * or it's a completely new inode. In those cases we might not
-	 * have i_mutpxt2 locked because it's not necessary.
+	 * have i_mutex locked because it's not necessary.
 	 */
 	if (!(inode->i_state & (I_NEW|I_FREEING)))
 		WARN_ON(!inode_is_locked(inode));
@@ -4534,7 +4534,7 @@ int pxt4_truncate(struct inode *inode)
 	pxt4_discard_preallocations(inode);
 
 	if (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS))
-		err = pxt4_pxt2t_truncate(handle, inode);
+		err = pxt4_ext_truncate(handle, inode);
 	else
 		pxt4_ind_truncate(handle, inode);
 
@@ -4560,12 +4560,12 @@ out_stop:
 	pxt4_mark_inode_dirty(handle, inode);
 	pxt4_journal_stop(handle);
 
-	trace_pxt4_truncate_pxt2it(inode);
+	trace_pxt4_truncate_exit(inode);
 	return err;
 }
 
 /*
- * pxt4_get_inode_loc returns with an pxt2tra refcount against the inode's
+ * pxt4_get_inode_loc returns with an extra refcount against the inode's
  * underlying buffer_head on success. If 'in_mem' is true, we have all
  * data in memory that is needed to recreate the on-disk version of this
  * inode.
@@ -4663,7 +4663,7 @@ static int __pxt4_get_inode_loc(struct inode *inode,
 
 make_io:
 		/*
-		 * If we need to do any I/O, try to pre-readahead pxt2tra
+		 * If we need to do any I/O, try to pre-readahead extra
 		 * blocks from the inode table.
 		 */
 		blk_start_plug(&plug);
@@ -4713,7 +4713,7 @@ has_buffer:
 
 int pxt4_get_inode_loc(struct inode *inode, struct pxt4_iloc *iloc)
 {
-	/* We have all inode data pxt2cept xattrs in memory here. */
+	/* We have all inode data except xattrs in memory here. */
 	return __pxt4_get_inode_loc(inode, iloc,
 		!pxt4_test_inode_state(inode, PXT4_STATE_XATTR));
 }
@@ -4785,14 +4785,14 @@ static blkcnt_t pxt4_inode_blocks(struct pxt4_inode *raw_inode,
 	}
 }
 
-static inline int pxt4_iget_pxt2tra_inode(struct inode *inode,
+static inline int pxt4_iget_extra_inode(struct inode *inode,
 					 struct pxt4_inode *raw_inode,
 					 struct pxt4_inode_info *ei)
 {
 	__le32 *magic = (void *)raw_inode +
-			PXT4_GOOD_OLD_INODE_SIZE + ei->i_pxt2tra_isize;
+			PXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize;
 
-	if (PXT4_GOOD_OLD_INODE_SIZE + ei->i_pxt2tra_isize + sizeof(__le32) <=
+	if (PXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize + sizeof(__le32) <=
 	    PXT4_INODE_SIZE(inode->i_sb) &&
 	    *magic == cpu_to_le32(PXT4_XATTR_MAGIC)) {
 		pxt4_set_inode_state(inode, PXT4_STATE_XATTR);
@@ -4886,20 +4886,20 @@ struct inode *__pxt4_iget(struct super_block *sb, unsigned long ino,
 	}
 
 	if (PXT4_INODE_SIZE(inode->i_sb) > PXT4_GOOD_OLD_INODE_SIZE) {
-		ei->i_pxt2tra_isize = le16_to_cpu(raw_inode->i_pxt2tra_isize);
-		if (PXT4_GOOD_OLD_INODE_SIZE + ei->i_pxt2tra_isize >
+		ei->i_extra_isize = le16_to_cpu(raw_inode->i_extra_isize);
+		if (PXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize >
 			PXT4_INODE_SIZE(inode->i_sb) ||
-		    (ei->i_pxt2tra_isize & 3)) {
+		    (ei->i_extra_isize & 3)) {
 			pxt4_error_inode(inode, function, line, 0,
-					 "iget: bad pxt2tra_isize %u "
+					 "iget: bad extra_isize %u "
 					 "(inode size %u)",
-					 ei->i_pxt2tra_isize,
+					 ei->i_extra_isize,
 					 PXT4_INODE_SIZE(inode->i_sb));
 			ret = -EFSCORRUPTED;
 			goto bad_inode;
 		}
 	} else
-		ei->i_pxt2tra_isize = 0;
+		ei->i_extra_isize = 0;
 
 	/* Precompute checksum seed for inode metadata */
 	if (pxt4_has_metadata_csum(sb)) {
@@ -4978,14 +4978,14 @@ struct inode *__pxt4_iget(struct super_block *sb, unsigned long ino,
 		goto bad_inode;
 	}
 	/*
-	 * If dir_indpxt2 is not enabled but there's dir with INDEX flag set,
+	 * If dir_index is not enabled but there's dir with INDEX flag set,
 	 * we'd normally treat htree data as empty space. But with metadata
 	 * checksumming that corrupts checksums so forbid that.
 	 */
-	if (!pxt4_has_feature_dir_indpxt2(sb) && pxt4_has_metadata_csum(sb) &&
+	if (!pxt4_has_feature_dir_index(sb) && pxt4_has_metadata_csum(sb) &&
 	    pxt4_test_inode_flag(inode, PXT4_INODE_INDEX)) {
 		pxt4_error_inode(inode, function, line, 0,
-			 "iget: Dir with htree data on filesystem without dir_indpxt2 feature.");
+			 "iget: Dir with htree data on filesystem without dir_index feature.");
 		ret = -EFSCORRUPTED;
 		goto bad_inode;
 	}
@@ -5030,13 +5030,13 @@ struct inode *__pxt4_iget(struct super_block *sb, unsigned long ino,
 	}
 
 	if (PXT4_INODE_SIZE(inode->i_sb) > PXT4_GOOD_OLD_INODE_SIZE) {
-		if (ei->i_pxt2tra_isize == 0) {
-			/* The pxt2tra space is currently unused. Use it. */
+		if (ei->i_extra_isize == 0) {
+			/* The extra space is currently unused. Use it. */
 			BUILD_BUG_ON(sizeof(struct pxt4_inode) & 3);
-			ei->i_pxt2tra_isize = sizeof(struct pxt4_inode) -
+			ei->i_extra_isize = sizeof(struct pxt4_inode) -
 					    PXT4_GOOD_OLD_INODE_SIZE;
 		} else {
-			ret = pxt4_iget_pxt2tra_inode(inode, raw_inode, ei);
+			ret = pxt4_iget_extra_inode(inode, raw_inode, ei);
 			if (ret)
 				goto bad_inode;
 		}
@@ -5062,7 +5062,7 @@ struct inode *__pxt4_iget(struct super_block *sb, unsigned long ino,
 	if (ei->i_file_acl &&
 	    !pxt4_data_block_valid(PXT4_SB(sb), ei->i_file_acl, 1)) {
 		pxt4_error_inode(inode, function, line, 0,
-				 "iget: bad pxt2tended attribute block %llu",
+				 "iget: bad extended attribute block %llu",
 				 ei->i_file_acl);
 		ret = -EFSCORRUPTED;
 		goto bad_inode;
@@ -5072,7 +5072,7 @@ struct inode *__pxt4_iget(struct super_block *sb, unsigned long ino,
 		   (S_ISLNK(inode->i_mode) &&
 		    !pxt4_inode_is_fast_symlink(inode))) {
 			if (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS))
-				ret = pxt4_pxt2t_check_inode(inode);
+				ret = pxt4_ext_check_inode(inode);
 			else
 				ret = pxt4_ind_check_inode(inode);
 		}
@@ -5346,12 +5346,12 @@ static int pxt4_do_update_inode(handle_t *handle,
 		u64 ivers = pxt4_inode_peek_iversion(inode);
 
 		raw_inode->i_disk_version = cpu_to_le32(ivers);
-		if (ei->i_pxt2tra_isize) {
+		if (ei->i_extra_isize) {
 			if (PXT4_FITS_IN_INODE(raw_inode, ei, i_version_hi))
 				raw_inode->i_version_hi =
 					cpu_to_le32(ivers >> 32);
-			raw_inode->i_pxt2tra_isize =
-				cpu_to_le16(ei->i_pxt2tra_isize);
+			raw_inode->i_extra_isize =
+				cpu_to_le16(ei->i_extra_isize);
 		}
 	}
 
@@ -5417,7 +5417,7 @@ out_brelse:
  *
  *	mark_inode_dirty(inode)
  *	stuff();
- *	inode->i_size = pxt2pr;
+ *	inode->i_size = expr;
  *
  * is in error because write_inode() could occur while `stuff()' is running,
  * and the new i_size will be lost.  Plus the inode will no longer be on the
@@ -5541,7 +5541,7 @@ static void pxt4_wait_for_tail_page_commit(struct inode *inode)
  * transaction are already on disk (truncate waits for pages under
  * writeback).
  *
- * Called with inode->i_mutpxt2 down.
+ * Called with inode->i_mutex down.
  */
 int pxt4_setattr(struct dentry *dentry, struct iattr *attr)
 {
@@ -5687,7 +5687,7 @@ int pxt4_setattr(struct dentry *dentry, struct iattr *attr)
 			if (error)
 				goto out_mmap_sem;
 			if (!shrink) {
-				pagecache_isize_pxt2tended(inode, oldsize,
+				pagecache_isize_extended(inode, oldsize,
 							 inode->i_size);
 			} else if (pxt4_should_journal_data(inode)) {
 				pxt4_wait_for_tail_page_commit(inode);
@@ -5780,7 +5780,7 @@ int pxt4_file_getattr(const struct path *path, struct kstat *stat,
 
 	/*
 	 * If there is inline data in the inode, the inode will normally not
-	 * have data blocks allocated (it may have an pxt2ternal xattr block).
+	 * have data blocks allocated (it may have an external xattr block).
 	 * Report at least one sector for such files, so tools like tar, rsync,
 	 * others don't incorrectly think the file is completely sparse.
 	 */
@@ -5803,27 +5803,27 @@ int pxt4_file_getattr(const struct path *path, struct kstat *stat,
 	return 0;
 }
 
-static int pxt4_indpxt2_trans_blocks(struct inode *inode, int lblocks,
-				   int ppxt2tents)
+static int pxt4_index_trans_blocks(struct inode *inode, int lblocks,
+				   int pextents)
 {
 	if (!(pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)))
 		return pxt4_ind_trans_blocks(inode, lblocks);
-	return pxt4_pxt2t_indpxt2_trans_blocks(inode, ppxt2tents);
+	return pxt4_ext_index_trans_blocks(inode, pextents);
 }
 
 /*
- * Account for indpxt2 blocks, block groups bitmaps and block group
- * descriptor blocks if modify datablocks and indpxt2 blocks
- * worse case, the indpxt2s blocks spread over different block groups
+ * Account for index blocks, block groups bitmaps and block group
+ * descriptor blocks if modify datablocks and index blocks
+ * worse case, the indexs blocks spread over different block groups
  *
  * If datablocks are discontiguous, they are possible to spread over
- * different block groups too. If they are contiguous, with flpxt2bg,
+ * different block groups too. If they are contiguous, with flexbg,
  * they could still across block group boundary.
  *
  * Also account for superblock, inode, quota and xattr blocks
  */
 static int pxt4_meta_trans_blocks(struct inode *inode, int lblocks,
-				  int ppxt2tents)
+				  int pextents)
 {
 	pxt4_group_t groups, ngroups = pxt4_get_groups_count(inode->i_sb);
 	int gdpblocks;
@@ -5831,10 +5831,10 @@ static int pxt4_meta_trans_blocks(struct inode *inode, int lblocks,
 	int ret = 0;
 
 	/*
-	 * How many indpxt2 blocks need to touch to map @lblocks logical blocks
-	 * to @ppxt2tents physical pxt2tents?
+	 * How many index blocks need to touch to map @lblocks logical blocks
+	 * to @pextents physical extents?
 	 */
-	idxblocks = pxt4_indpxt2_trans_blocks(inode, lblocks, ppxt2tents);
+	idxblocks = pxt4_index_trans_blocks(inode, lblocks, pextents);
 
 	ret = idxblocks;
 
@@ -5842,7 +5842,7 @@ static int pxt4_meta_trans_blocks(struct inode *inode, int lblocks,
 	 * Now let's see how many group bitmaps and group descriptors need
 	 * to account
 	 */
-	groups = idxblocks + ppxt2tents;
+	groups = idxblocks + pextents;
 	gdpblocks = groups;
 	if (groups > ngroups)
 		groups = ngroups;
@@ -5866,7 +5866,7 @@ static int pxt4_meta_trans_blocks(struct inode *inode, int lblocks,
  * This could be called via pxt4_write_begin()
  *
  * We need to consider the worse case, when
- * one new block per pxt2tent.
+ * one new block per extent.
  */
 int pxt4_writepage_trans_blocks(struct inode *inode)
 {
@@ -5947,10 +5947,10 @@ pxt4_reserve_inode_write(handle_t *handle, struct inode *inode,
 	return err;
 }
 
-static int __pxt4_pxt2pand_pxt2tra_isize(struct inode *inode,
-				     unsigned int new_pxt2tra_isize,
+static int __pxt4_expand_extra_isize(struct inode *inode,
+				     unsigned int new_extra_isize,
 				     struct pxt4_iloc *iloc,
-				     handle_t *handle, int *no_pxt2pand)
+				     handle_t *handle, int *no_expand)
 {
 	struct pxt4_inode *raw_inode;
 	struct pxt4_xattr_ibody_header *header;
@@ -5959,90 +5959,90 @@ static int __pxt4_pxt2pand_pxt2tra_isize(struct inode *inode,
 	int error;
 
 	/* this was checked at iget time, but double check for good measure */
-	if ((PXT4_GOOD_OLD_INODE_SIZE + ei->i_pxt2tra_isize > inode_size) ||
-	    (ei->i_pxt2tra_isize & 3)) {
-		PXT4_ERROR_INODE(inode, "bad pxt2tra_isize %u (inode size %u)",
-				 ei->i_pxt2tra_isize,
+	if ((PXT4_GOOD_OLD_INODE_SIZE + ei->i_extra_isize > inode_size) ||
+	    (ei->i_extra_isize & 3)) {
+		PXT4_ERROR_INODE(inode, "bad extra_isize %u (inode size %u)",
+				 ei->i_extra_isize,
 				 PXT4_INODE_SIZE(inode->i_sb));
 		return -EFSCORRUPTED;
 	}
-	if ((new_pxt2tra_isize < ei->i_pxt2tra_isize) ||
-	    (new_pxt2tra_isize < 4) ||
-	    (new_pxt2tra_isize > inode_size - PXT4_GOOD_OLD_INODE_SIZE))
+	if ((new_extra_isize < ei->i_extra_isize) ||
+	    (new_extra_isize < 4) ||
+	    (new_extra_isize > inode_size - PXT4_GOOD_OLD_INODE_SIZE))
 		return -EINVAL;	/* Should never happen */
 
 	raw_inode = pxt4_raw_inode(iloc);
 
 	header = IHDR(inode, raw_inode);
 
-	/* No pxt2tended attributes present */
+	/* No extended attributes present */
 	if (!pxt4_test_inode_state(inode, PXT4_STATE_XATTR) ||
 	    header->h_magic != cpu_to_le32(PXT4_XATTR_MAGIC)) {
 		memset((void *)raw_inode + PXT4_GOOD_OLD_INODE_SIZE +
-		       PXT4_I(inode)->i_pxt2tra_isize, 0,
-		       new_pxt2tra_isize - PXT4_I(inode)->i_pxt2tra_isize);
-		PXT4_I(inode)->i_pxt2tra_isize = new_pxt2tra_isize;
+		       PXT4_I(inode)->i_extra_isize, 0,
+		       new_extra_isize - PXT4_I(inode)->i_extra_isize);
+		PXT4_I(inode)->i_extra_isize = new_extra_isize;
 		return 0;
 	}
 
-	/* try to pxt2pand with EAs present */
-	error = pxt4_pxt2pand_pxt2tra_isize_ea(inode, new_pxt2tra_isize,
+	/* try to expand with EAs present */
+	error = pxt4_expand_extra_isize_ea(inode, new_extra_isize,
 					   raw_inode, handle);
 	if (error) {
 		/*
-		 * Inode size pxt2pansion failed; don't try again
+		 * Inode size expansion failed; don't try again
 		 */
-		*no_pxt2pand = 1;
+		*no_expand = 1;
 	}
 
 	return error;
 }
 
 /*
- * Expand an inode by new_pxt2tra_isize bytes.
+ * Expand an inode by new_extra_isize bytes.
  * Returns 0 on success or negative error number on failure.
  */
-static int pxt4_try_to_pxt2pand_pxt2tra_isize(struct inode *inode,
-					  unsigned int new_pxt2tra_isize,
+static int pxt4_try_to_expand_extra_isize(struct inode *inode,
+					  unsigned int new_extra_isize,
 					  struct pxt4_iloc iloc,
 					  handle_t *handle)
 {
-	int no_pxt2pand;
+	int no_expand;
 	int error;
 
 	if (pxt4_test_inode_state(inode, PXT4_STATE_NO_EXPAND))
 		return -EOVERFLOW;
 
 	/*
-	 * In nojournal mode, we can immediately attempt to pxt2pand
-	 * the inode.  When journaled, we first need to obtain pxt2tra
+	 * In nojournal mode, we can immediately attempt to expand
+	 * the inode.  When journaled, we first need to obtain extra
 	 * buffer credits since we may write into the EA block
-	 * with this same handle. If journal_pxt2tend fails, then it will
+	 * with this same handle. If journal_extend fails, then it will
 	 * only result in a minor loss of functionality for that inode.
 	 * If this is felt to be critical, then e2fsck should be run to
-	 * force a large enough s_min_pxt2tra_isize.
+	 * force a large enough s_min_extra_isize.
 	 */
 	if (pxt4_handle_valid(handle) &&
-	    jbd3_journal_pxt2tend(handle,
+	    jbd3_journal_extend(handle,
 				PXT4_DATA_TRANS_BLOCKS(inode->i_sb)) != 0)
 		return -ENOSPC;
 
-	if (pxt4_write_trylock_xattr(inode, &no_pxt2pand) == 0)
+	if (pxt4_write_trylock_xattr(inode, &no_expand) == 0)
 		return -EBUSY;
 
-	error = __pxt4_pxt2pand_pxt2tra_isize(inode, new_pxt2tra_isize, &iloc,
-					  handle, &no_pxt2pand);
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	error = __pxt4_expand_extra_isize(inode, new_extra_isize, &iloc,
+					  handle, &no_expand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 
 	return error;
 }
 
-int pxt4_pxt2pand_pxt2tra_isize(struct inode *inode,
-			    unsigned int new_pxt2tra_isize,
+int pxt4_expand_extra_isize(struct inode *inode,
+			    unsigned int new_extra_isize,
 			    struct pxt4_iloc *iloc)
 {
 	handle_t *handle;
-	int no_pxt2pand;
+	int no_expand;
 	int error, rc;
 
 	if (pxt4_test_inode_state(inode, PXT4_STATE_NO_EXPAND)) {
@@ -6058,7 +6058,7 @@ int pxt4_pxt2pand_pxt2tra_isize(struct inode *inode,
 		return error;
 	}
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 
 	BUFFER_TRACE(iloc->bh, "get_write_access");
 	error = pxt4_journal_get_write_access(handle, iloc->bh);
@@ -6067,15 +6067,15 @@ int pxt4_pxt2pand_pxt2tra_isize(struct inode *inode,
 		goto out_unlock;
 	}
 
-	error = __pxt4_pxt2pand_pxt2tra_isize(inode, new_pxt2tra_isize, iloc,
-					  handle, &no_pxt2pand);
+	error = __pxt4_expand_extra_isize(inode, new_extra_isize, iloc,
+					  handle, &no_expand);
 
 	rc = pxt4_mark_iloc_dirty(handle, inode, iloc);
 	if (!error)
 		error = rc;
 
 out_unlock:
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 	pxt4_journal_stop(handle);
 	return error;
 }
@@ -6105,8 +6105,8 @@ int pxt4_mark_inode_dirty(handle_t *handle, struct inode *inode)
 	if (err)
 		return err;
 
-	if (PXT4_I(inode)->i_pxt2tra_isize < sbi->s_want_pxt2tra_isize)
-		pxt4_try_to_pxt2pand_pxt2tra_isize(inode, sbi->s_want_pxt2tra_isize,
+	if (PXT4_I(inode)->i_extra_isize < sbi->s_want_extra_isize)
+		pxt4_try_to_expand_extra_isize(inode, sbi->s_want_extra_isize,
 					       iloc, handle);
 
 	return pxt4_mark_iloc_dirty(handle, inode, &iloc);
@@ -6115,7 +6115,7 @@ int pxt4_mark_inode_dirty(handle_t *handle, struct inode *inode)
 /*
  * pxt4_dirty_inode() is called from __mark_inode_dirty()
  *
- * We're really interested in the case where a file is being pxt2tended.
+ * We're really interested in the case where a file is being extended.
  * i_size has been changed by generic_commit_write() and we thus need
  * to include the updated inode in the current transaction.
  *
@@ -6170,13 +6170,13 @@ int pxt4_change_inode_journal_flag(struct inode *inode, int val)
 	if (is_journal_aborted(journal))
 		return -EROFS;
 
-	/* Wait for all pxt2isting dio workers */
+	/* Wait for all existing dio workers */
 	inode_dio_wait(inode);
 
 	/*
 	 * Before flushing the journal and switching inode's aops, we have
 	 * to flush all dirty data the inode has. There can be outstanding
-	 * delayed allocations, there can be unwritten pxt2tents created by
+	 * delayed allocations, there can be unwritten extents created by
 	 * fallocate or buffered writes in dioread_nolock mode covered by
 	 * dirty data which can be converted only after flushing the dirty
 	 * data (and journalled aops don't know how to handle these cases).
@@ -6287,7 +6287,7 @@ vm_fault_t pxt4_page_mkwrite(struct vm_fault *vmf)
 		goto out;
 	}
 
-	if (page->indpxt2 == size >> PAGE_SHIFT)
+	if (page->index == size >> PAGE_SHIFT)
 		len = size & ~PAGE_MASK;
 	else
 		len = PAGE_SIZE;

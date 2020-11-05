@@ -17,11 +17,11 @@
  *        David S. Miller (davem@caip.rutgers.edu), 1995
  *  Directory entry file type support and forward compatibility hooks
  *	for B-tree directories by Theodore Ts'o (tytso@mit.edu), 1998
- *  Hash Tree Directory indpxt2ing (c)
+ *  Hash Tree Directory indexing (c)
  *	Daniel Phillips, 2001
- *  Hash Tree Directory indpxt2ing porting
+ *  Hash Tree Directory indexing porting
  *	Christopher Li, 2002
- *  Hash Tree Directory indpxt2ing cleanup
+ *  Hash Tree Directory indexing cleanup
  *	Theodore Ts'o, 2002
  */
 
@@ -83,10 +83,10 @@ static int pxt4_dx_csum_verify(struct inode *inode,
 			       struct pxt4_dir_entry *dirent);
 
 /*
- * Hints to pxt4_read_dirblock regarding whether we pxt2pect a directory
- * block being read to be an indpxt2 block, or a block containing
+ * Hints to pxt4_read_dirblock regarding whether we expect a directory
+ * block being read to be an index block, or a block containing
  * directory entries (and if the latter, whether it was found via a
- * logical block in an htree indpxt2 block).  This is used to control
+ * logical block in an htree index block).  This is used to control
  * what sort of sanity checkinig pxt4_read_dirblock() will do on the
  * directory block read from the storage device.  EITHER will means
  * the caller doesn't know what kind of directory block will be read,
@@ -122,13 +122,13 @@ static struct buffer_head *__pxt4_read_dirblock(struct inode *inode,
 	if (!bh && (type == INDEX || type == DIRENT_HTREE)) {
 		pxt4_error_inode(inode, func, line, block,
 				 "Directory hole found for htree %s block",
-				 (type == INDEX) ? "indpxt2" : "leaf");
+				 (type == INDEX) ? "index" : "leaf");
 		return ERR_PTR(-EFSCORRUPTED);
 	}
 	if (!bh)
 		return NULL;
 	dirent = (struct pxt4_dir_entry *) bh->b_data;
-	/* Determine whether or not we have an indpxt2 block */
+	/* Determine whether or not we have an index block */
 	if (is_dx(inode)) {
 		if (block == 0)
 			is_dx_block = 1;
@@ -139,7 +139,7 @@ static struct buffer_head *__pxt4_read_dirblock(struct inode *inode,
 	}
 	if (!is_dx_block && type == INDEX) {
 		pxt4_error_inode(inode, func, line, block,
-		       "directory leaf block found instead of indpxt2 block");
+		       "directory leaf block found instead of index block");
 		brelse(bh);
 		return ERR_PTR(-EFSCORRUPTED);
 	}
@@ -148,16 +148,16 @@ static struct buffer_head *__pxt4_read_dirblock(struct inode *inode,
 		return bh;
 
 	/*
-	 * An empty leaf block can get mistaken for a indpxt2 block; for
-	 * this reason, we can only check the indpxt2 checksum when the
-	 * caller is sure it should be an indpxt2 block.
+	 * An empty leaf block can get mistaken for a index block; for
+	 * this reason, we can only check the index checksum when the
+	 * caller is sure it should be an index block.
 	 */
 	if (is_dx_block && type == INDEX) {
 		if (pxt4_dx_csum_verify(inode, dirent))
 			set_buffer_verified(bh);
 		else {
 			pxt4_error_inode(inode, func, line, block,
-					 "Directory indpxt2 failed checksum");
+					 "Directory index failed checksum");
 			brelse(bh);
 			return ERR_PTR(-EFSBADCRC);
 		}
@@ -282,7 +282,7 @@ static struct pxt4_dir_entry_2 *dx_move_dirents(char *from, char *to,
 static struct pxt4_dir_entry_2* dx_pack_dirents(char *base, unsigned blocksize);
 static void dx_insert_block(struct dx_frame *frame,
 					u32 hash, pxt4_lblk_t block);
-static int pxt4_htree_npxt2t_block(struct inode *dir, __u32 hash,
+static int pxt4_htree_next_block(struct inode *dir, __u32 hash,
 				 struct dx_frame *frame,
 				 struct dx_frame *frames,
 				 __u32 *start_hash);
@@ -518,7 +518,7 @@ static inline int pxt4_handle_dirty_dx_node(handle_t *handle,
  * p is at least 6 bytes before the end of page
  */
 static inline struct pxt4_dir_entry_2 *
-pxt4_npxt2t_entry(struct pxt4_dir_entry_2 *p, unsigned long blocksize)
+pxt4_next_entry(struct pxt4_dir_entry_2 *p, unsigned long blocksize)
 {
 	return (struct pxt4_dir_entry_2 *)((char *)p +
 		pxt4_rec_len_from_disk(p->rec_len, blocksize));
@@ -592,10 +592,10 @@ static inline unsigned dx_node_limit(struct inode *dir)
  * Debug
  */
 #ifdef DX_DEBUG
-static void dx_show_indpxt2(char * label, struct dx_entry *entries)
+static void dx_show_index(char * label, struct dx_entry *entries)
 {
 	int i, n = dx_get_count (entries);
-	printk(KERN_DEBUG "%s indpxt2", label);
+	printk(KERN_DEBUG "%s index", label);
 	for (i = 0; i < n; i++) {
 		printk(KERN_CONT " %x->%lu",
 		       i ? dx_get_hash(entries + i) : 0,
@@ -696,7 +696,7 @@ static struct stats dx_show_leaf(struct inode *dir,
 			space += PXT4_DIR_REC_LEN(de->name_len);
 			names++;
 		}
-		de = pxt4_npxt2t_entry(de, size);
+		de = pxt4_next_entry(de, size);
 	}
 	printk(KERN_CONT "(%i)\n", names);
 	return (struct stats) { names, space, 1 };
@@ -709,7 +709,7 @@ struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
 	unsigned count = dx_get_count(entries), names = 0, space = 0, i;
 	unsigned bcount = 0;
 	struct buffer_head *bh;
-	printk("%i indpxt2ed blocks...\n", count);
+	printk("%i indexed blocks...\n", count);
 	for (i = 0; i < count; i++, entries++)
 	{
 		pxt4_lblk_t block = dx_get_block(entries);
@@ -741,7 +741,7 @@ struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
  * Probe for a directory leaf block to search.
  *
  * dx_probe can return ERR_BAD_DX_DIR, which means there was a format
- * error in the directory indpxt2, and the caller should fall back to
+ * error in the directory index, and the caller should fall back to
  * searching the directory normally.  The callers of dx_probe **MUST**
  * check for this error code, and make sure it never gets reflected
  * back to userspace.
@@ -789,7 +789,7 @@ dx_probe(struct pxt4_filename *fname, struct inode *dir,
 	indirect = root->info.indirect_levels;
 	if (indirect >= pxt4_dir_htree_level(dir->i_sb)) {
 		pxt4_warning(dir->i_sb,
-			     "Directory (ino: %lu) htree depth %#06x pxt2ceed"
+			     "Directory (ino: %lu) htree depth %#06x exceed"
 			     "supported value", dir->i_ino,
 			     pxt4_dir_htree_level(dir->i_sb));
 		if (pxt4_dir_htree_level(dir->i_sb) < PXT4_HTREE_LEVEL) {
@@ -903,23 +903,23 @@ static void dx_release(struct dx_frame *frames)
 }
 
 /*
- * This function increments the frame pointer to search the npxt2t leaf
+ * This function increments the frame pointer to search the next leaf
  * block, and reads in the necessary intervening nodes if the search
  * should be necessary.  Whether or not the search is necessary is
  * controlled by the hash parameter.  If the hash value is even, then
- * the search is only continued if the npxt2t block starts with that
+ * the search is only continued if the next block starts with that
  * hash value.  This is used if we are searching for a specific file.
  *
- * If the hash value is HASH_NB_ALWAYS, then always go to the npxt2t block.
+ * If the hash value is HASH_NB_ALWAYS, then always go to the next block.
  *
  * This function returns 1 if the caller should continue to search,
  * or 0 if it should not.  If there is an error reading one of the
- * indpxt2 blocks, it will a negative error code.
+ * index blocks, it will a negative error code.
  *
  * If start_hash is non-null, it will be filled in with the starting
- * hash of the npxt2t page.
+ * hash of the next page.
  */
-static int pxt4_htree_npxt2t_block(struct inode *dir, __u32 hash,
+static int pxt4_htree_next_block(struct inode *dir, __u32 hash,
 				 struct dx_frame *frame,
 				 struct dx_frame *frames,
 				 __u32 *start_hash)
@@ -931,7 +931,7 @@ static int pxt4_htree_npxt2t_block(struct inode *dir, __u32 hash,
 
 	p = frame;
 	/*
-	 * Find the npxt2t leaf page by incrementing the frame pointer.
+	 * Find the next leaf page by incrementing the frame pointer.
 	 * If we run out of entries in the interior node, loop around and
 	 * increment pointer in the parent node.  When we break out of
 	 * this loop, num_frames indicates the number of interior
@@ -947,11 +947,11 @@ static int pxt4_htree_npxt2t_block(struct inode *dir, __u32 hash,
 	}
 
 	/*
-	 * If the hash is 1, then continue only if the npxt2t page has a
+	 * If the hash is 1, then continue only if the next page has a
 	 * continuation hash of any value.  This is used for readdir
 	 * handling.  Otherwise, check to see if the hash matches the
 	 * desired contiuation hash.  If it doesn't, return since
-	 * there's no point to read in the successive indpxt2 pages.
+	 * there's no point to read in the successive index pages.
 	 */
 	bhash = dx_get_hash(p->at);
 	if (start_hash)
@@ -961,7 +961,7 @@ static int pxt4_htree_npxt2t_block(struct inode *dir, __u32 hash,
 			return 0;
 	}
 	/*
-	 * If the hash is HASH_NB_ALWAYS, we always go to the npxt2t
+	 * If the hash is HASH_NB_ALWAYS, we always go to the next
 	 * block so no check is necessary
 	 */
 	while (num_frames--) {
@@ -1018,7 +1018,7 @@ static int htree_dirblock_to_tree(struct file *dir_file,
 		}
 	}
 #endif
-	for (; de < top; de = pxt4_npxt2t_entry(de, dir->i_sb->s_blocksize)) {
+	for (; de < top; de = pxt4_next_entry(de, dir->i_sb->s_blocksize)) {
 		if (pxt4_check_dir_entry(dir, NULL, de, bh,
 				bh->b_data, bh->b_size,
 				(block<<PXT4_BLOCK_SIZE_BITS(dir->i_sb))
@@ -1081,7 +1081,7 @@ errout:
  * or a negative error code.
  */
 int pxt4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
-			 __u32 start_minor_hash, __u32 *npxt2t_hash)
+			 __u32 start_minor_hash, __u32 *next_hash)
 {
 	struct dx_hash_info hinfo;
 	struct pxt4_dir_entry_2 *de;
@@ -1109,13 +1109,13 @@ int pxt4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 						       start_minor_hash,
 						       &has_inline_data);
 			if (has_inline_data) {
-				*npxt2t_hash = ~0;
+				*next_hash = ~0;
 				return count;
 			}
 		}
 		count = htree_dirblock_to_tree(dir_file, dir, 0, &hinfo,
 					       start_hash, start_minor_hash);
-		*npxt2t_hash = ~0;
+		*next_hash = ~0;
 		return count;
 	}
 	hinfo.hash = start_hash;
@@ -1137,7 +1137,7 @@ int pxt4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 	}
 	if (start_hash < 2 || (start_hash ==2 && start_minor_hash==0)) {
 		de = (struct pxt4_dir_entry_2 *) frames[0].bh->b_data;
-		de = pxt4_npxt2t_entry(de, dir->i_sb->s_blocksize);
+		de = pxt4_next_entry(de, dir->i_sb->s_blocksize);
 		tmp_str.name = de->name;
 		tmp_str.len = de->name_len;
 		err = pxt4_htree_store_dirent(dir_file, 2, 0,
@@ -1162,9 +1162,9 @@ int pxt4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 		}
 		count += ret;
 		hashval = ~0;
-		ret = pxt4_htree_npxt2t_block(dir, HASH_NB_ALWAYS,
+		ret = pxt4_htree_next_block(dir, HASH_NB_ALWAYS,
 					    frame, frames, &hashval);
-		*npxt2t_hash = hashval;
+		*next_hash = hashval;
 		if (ret < 0) {
 			err = ret;
 			goto errout;
@@ -1172,7 +1172,7 @@ int pxt4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 		/*
 		 * Stop if:  (a) there are no more entries, or
 		 * (b) we have inserted at least one entry and the
-		 * npxt2t hash value is not a continuation
+		 * next hash value is not a continuation
 		 */
 		if ((ret == 0) ||
 		    (count && ((hashval & 1) == 0)))
@@ -1180,7 +1180,7 @@ int pxt4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 	}
 	dx_release(frames);
 	dxtrace(printk(KERN_DEBUG "Fill tree: returned %d entries, "
-		       "npxt2t hash: %x\n", count, *npxt2t_hash));
+		       "next hash: %x\n", count, *next_hash));
 	return count;
 errout:
 	dx_release(frames);
@@ -1224,7 +1224,7 @@ static int dx_make_map(struct inode *dir, struct pxt4_dir_entry_2 *de,
 			cond_resched();
 		}
 		/* XXX: do we need to check rec_len == 0 case? -Chris */
-		de = pxt4_npxt2t_entry(de, blocksize);
+		de = pxt4_next_entry(de, blocksize);
 	}
 	return count;
 }
@@ -1386,7 +1386,7 @@ int pxt4_search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
 	de = (struct pxt4_dir_entry_2 *)search_buf;
 	dlimit = search_buf + buf_size;
 	while ((char *) de < dlimit) {
-		/* this code is pxt2ecuted quadratically often */
+		/* this code is executed quadratically often */
 		/* do minimal checking `by hand' */
 		if ((char *) de + de->name_len <= dlimit &&
 		    pxt4_match(dir, fname, de)) {
@@ -1433,7 +1433,7 @@ static int is_dx_internal_node(struct inode *dir, pxt4_lblk_t block,
  * itself (as a parameter - res_dir). It does NOT read the inode of the
  * entry - you'll have to do that yourself if you want to.
  *
- * The returned buffer_head has ->b_count elevated.  The caller is pxt2pected
+ * The returned buffer_head has ->b_count elevated.  The caller is expected
  * to brelse() it when appropriate.
  */
 static struct buffer_head *__pxt4_find_entry(struct inode *dir,
@@ -1448,7 +1448,7 @@ static struct buffer_head *__pxt4_find_entry(struct inode *dir,
 	const u8 *name = fname->usr_fname->name;
 	size_t ra_max = 0;	/* Number of bh's in the readahead
 				   buffer, bh_use[] */
-	size_t ra_ptr = 0;	/* Current indpxt2 into readahead
+	size_t ra_ptr = 0;	/* Current index into readahead
 				   buffer */
 	pxt4_lblk_t  nblocks;
 	int i, namelen, retval;
@@ -1466,7 +1466,7 @@ static struct buffer_head *__pxt4_find_entry(struct inode *dir,
 		if (has_inline_data) {
 			if (inlined)
 				*inlined = 1;
-			goto cleanup_and_pxt2it;
+			goto cleanup_and_exit;
 		}
 	}
 
@@ -1488,7 +1488,7 @@ static struct buffer_head *__pxt4_find_entry(struct inode *dir,
 		 * old fashioned way.
 		 */
 		if (!IS_ERR(ret) || PTR_ERR(ret) != ERR_BAD_DX_DIR)
-			goto cleanup_and_pxt2it;
+			goto cleanup_and_exit;
 		dxtrace(printk(KERN_DEBUG "pxt4_find_entry: dx failed, "
 			       "falling back\n"));
 		ret = NULL;
@@ -1496,7 +1496,7 @@ static struct buffer_head *__pxt4_find_entry(struct inode *dir,
 	nblocks = dir->i_size >> PXT4_BLOCK_SIZE_BITS(sb);
 	if (!nblocks) {
 		ret = NULL;
-		goto cleanup_and_pxt2it;
+		goto cleanup_and_exit;
 	}
 	start = PXT4_I(dir)->i_dir_start_lookup;
 	if (start >= nblocks)
@@ -1521,18 +1521,18 @@ restart:
 			if (retval) {
 				ret = ERR_PTR(retval);
 				ra_max = 0;
-				goto cleanup_and_pxt2it;
+				goto cleanup_and_exit;
 			}
 		}
 		if ((bh = bh_use[ra_ptr++]) == NULL)
-			goto npxt2t;
+			goto next;
 		wait_on_buffer(bh);
 		if (!buffer_uptodate(bh)) {
 			PXT4_ERROR_INODE(dir, "reading directory lblock %lu",
 					 (unsigned long) block);
 			brelse(bh);
 			ret = ERR_PTR(-EIO);
-			goto cleanup_and_pxt2it;
+			goto cleanup_and_exit;
 		}
 		if (!buffer_verified(bh) &&
 		    !is_dx_internal_node(dir, block,
@@ -1542,7 +1542,7 @@ restart:
 					 "block %lu", (unsigned long)block);
 			brelse(bh);
 			ret = ERR_PTR(-EFSBADCRC);
-			goto cleanup_and_pxt2it;
+			goto cleanup_and_exit;
 		}
 		set_buffer_verified(bh);
 		i = search_dirblock(bh, dir, fname,
@@ -1550,13 +1550,13 @@ restart:
 		if (i == 1) {
 			PXT4_I(dir)->i_dir_start_lookup = block;
 			ret = bh;
-			goto cleanup_and_pxt2it;
+			goto cleanup_and_exit;
 		} else {
 			brelse(bh);
 			if (i < 0)
-				goto cleanup_and_pxt2it;
+				goto cleanup_and_exit;
 		}
-	npxt2t:
+	next:
 		if (++block >= nblocks)
 			block = 0;
 	} while (block != start);
@@ -1572,7 +1572,7 @@ restart:
 		goto restart;
 	}
 
-cleanup_and_pxt2it:
+cleanup_and_exit:
 	/* Clean up the read-ahead blocks */
 	for (; ra_ptr < ra_max; ra_ptr++)
 		brelse(bh_use[ra_ptr]);
@@ -1654,11 +1654,11 @@ static struct buffer_head * pxt4_dx_find_entry(struct inode *dir,
 		}
 
 		/* Check to see if we should continue to search */
-		retval = pxt4_htree_npxt2t_block(dir, fname->hinfo.hash, frame,
+		retval = pxt4_htree_next_block(dir, fname->hinfo.hash, frame,
 					       frames, NULL);
 		if (retval < 0) {
 			pxt4_warning_inode(dir,
-				"error %d reading directory indpxt2 block",
+				"error %d reading directory index block",
 				retval);
 			bh = ERR_PTR(retval);
 			goto errout;
@@ -1707,9 +1707,9 @@ static struct dentry *pxt4_lookup(struct inode *dir, struct dentry *dentry, unsi
 		}
 		if (!IS_ERR(inode) && IS_ENCRYPTED(dir) &&
 		    (S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)) &&
-		    !fscrypt_has_permitted_contpxt2t(dir, inode)) {
+		    !fscrypt_has_permitted_context(dir, inode)) {
 			pxt4_warning(inode->i_sb,
-				     "Inconsistent encryption contpxt2ts: %lu/%lu",
+				     "Inconsistent encryption contexts: %lu/%lu",
 				     dir->i_ino, inode->i_ino);
 			iput(inode);
 			return ERR_PTR(-EPERM);
@@ -1784,12 +1784,12 @@ dx_move_dirents(char *from, char *to, struct dx_map_entry *map, int count,
  */
 static struct pxt4_dir_entry_2* dx_pack_dirents(char *base, unsigned blocksize)
 {
-	struct pxt4_dir_entry_2 *npxt2t, *to, *prev, *de = (struct pxt4_dir_entry_2 *) base;
+	struct pxt4_dir_entry_2 *next, *to, *prev, *de = (struct pxt4_dir_entry_2 *) base;
 	unsigned rec_len = 0;
 
 	prev = to = de;
 	while ((char*)de < base + blocksize) {
-		npxt2t = pxt4_npxt2t_entry(de, blocksize);
+		next = pxt4_next_entry(de, blocksize);
 		if (de->inode && de->name_len) {
 			rec_len = PXT4_DIR_REC_LEN(de->name_len);
 			if (de > to)
@@ -1798,7 +1798,7 @@ static struct pxt4_dir_entry_2* dx_pack_dirents(char *base, unsigned blocksize)
 			prev = to;
 			to = (struct pxt4_dir_entry_2 *) (((char *) to) + rec_len);
 		}
-		de = npxt2t;
+		de = next;
 	}
 	return prev;
 }
@@ -1863,9 +1863,9 @@ static struct pxt4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 		move++;
 	}
 	/*
-	 * map indpxt2 at which we will split
+	 * map index at which we will split
 	 *
-	 * If the sum of active entries didn't pxt2ceed half the block size, just
+	 * If the sum of active entries didn't exceed half the block size, just
 	 * split it in half by count; each resulting block will have at least
 	 * half the space free.
 	 */
@@ -1913,7 +1913,7 @@ static struct pxt4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 	if (err)
 		goto journal_error;
 	brelse(bh2);
-	dxtrace(dx_show_indpxt2("frame", frame->entries));
+	dxtrace(dx_show_index("frame", frame->entries));
 	return de;
 
 journal_error:
@@ -1988,7 +1988,7 @@ void pxt4_insert_dentry(struct inode *inode,
  * enough for new directory entry.  If de is NULL, then
  * add_dirent_to_buf will attempt search the directory block for
  * space.  It will return -ENOSPC if no space is available, and -EIO
- * and -EEXIST if directory entry already pxt2ists.
+ * and -EEXIST if directory entry already exists.
  */
 static int add_dirent_to_buf(handle_t *handle, struct pxt4_filename *fname,
 			     struct inode *dir,
@@ -2041,10 +2041,10 @@ static int add_dirent_to_buf(handle_t *handle, struct pxt4_filename *fname,
 }
 
 /*
- * This converts a one block unindpxt2ed directory to a 3 block indpxt2ed
- * directory, and adds the dentry to the indpxt2ed directory.
+ * This converts a one block unindexed directory to a 3 block indexed
+ * directory, and adds the dentry to the indexed directory.
  */
-static int make_indpxt2ed_dir(handle_t *handle, struct pxt4_filename *fname,
+static int make_indexed_dir(handle_t *handle, struct pxt4_filename *fname,
 			    struct inode *dir,
 			    struct inode *inode, struct buffer_head *bh)
 {
@@ -2065,7 +2065,7 @@ static int make_indpxt2ed_dir(handle_t *handle, struct pxt4_filename *fname,
 		csum_size = sizeof(struct pxt4_dir_entry_tail);
 
 	blocksize =  dir->i_sb->s_blocksize;
-	dxtrace(printk(KERN_DEBUG "Creating indpxt2: inode %lu\n", dir->i_ino));
+	dxtrace(printk(KERN_DEBUG "Creating index: inode %lu\n", dir->i_ino));
 	BUFFER_TRACE(bh, "get_write_access");
 	retval = pxt4_journal_get_write_access(handle, bh);
 	if (retval) {
@@ -2098,7 +2098,7 @@ static int make_indpxt2ed_dir(handle_t *handle, struct pxt4_filename *fname,
 	memcpy(data2, de, len);
 	de = (struct pxt4_dir_entry_2 *) data2;
 	top = data2 + len;
-	while ((char *)(de2 = pxt4_npxt2t_entry(de, blocksize)) < top)
+	while ((char *)(de2 = pxt4_next_entry(de, blocksize)) < top)
 		de = de2;
 	de->rec_len = pxt4_rec_len_to_disk(data2 + (blocksize - csum_size) -
 					   (char *) de, blocksize);
@@ -2106,7 +2106,7 @@ static int make_indpxt2ed_dir(handle_t *handle, struct pxt4_filename *fname,
 	if (csum_size)
 		pxt4_initialize_dirent_tail(bh2, blocksize);
 
-	/* Initialize the root; the dot dirents already pxt2ist */
+	/* Initialize the root; the dot dirents already exist */
 	de = (struct pxt4_dir_entry_2 *) (&root->dotdot);
 	de->rec_len = pxt4_rec_len_to_disk(blocksize - PXT4_DIR_REC_LEN(2),
 					   blocksize);
@@ -2219,7 +2219,7 @@ static int pxt4_add_entry(handle_t *handle, struct dentry *dentry,
 		/* Can we just ignore htree data? */
 		if (pxt4_has_metadata_csum(sb)) {
 			PXT4_ERROR_INODE(dir,
-				"Directory has corrupted htree indpxt2.");
+				"Directory has corrupted htree index.");
 			retval = -EFSCORRUPTED;
 			goto out;
 		}
@@ -2246,10 +2246,10 @@ static int pxt4_add_entry(handle_t *handle, struct dentry *dentry,
 			goto out;
 
 		if (blocks == 1 && !dx_fallback &&
-		    pxt4_has_feature_dir_indpxt2(sb)) {
-			retval = make_indpxt2ed_dir(handle, &fname, dir,
+		    pxt4_has_feature_dir_index(sb)) {
+			retval = make_indexed_dir(handle, &fname, dir,
 						  inode, bh);
-			bh = NULL; /* make_indpxt2ed_dir releases bh */
+			bh = NULL; /* make_indexed_dir releases bh */
 			goto out;
 		}
 		brelse(bh);
@@ -2318,7 +2318,7 @@ again:
 	/* Block full, should compress but for now just split */
 	dxtrace(printk(KERN_DEBUG "using %u of %u node entries\n",
 		       dx_get_count(entries), dx_get_limit(entries)));
-	/* Need to split indpxt2? */
+	/* Need to split index? */
 	if (dx_get_count(entries) == dx_get_limit(entries)) {
 		pxt4_lblk_t newblock;
 		int levels = frame - frames + 1;
@@ -2334,13 +2334,13 @@ again:
 				add_level = 0;
 				break;
 			}
-			frame--; /* split higher indpxt2 block */
+			frame--; /* split higher index block */
 			at = frame->at;
 			entries = frame->entries;
 			restart = 1;
 		}
 		if (add_level && levels == pxt4_dir_htree_level(sb)) {
-			pxt4_warning(sb, "Directory (ino: %lu) indpxt2 full, "
+			pxt4_warning(sb, "Directory (ino: %lu) index full, "
 					 "reach max htree level :%d",
 					 dir->i_ino, levels);
 			if (pxt4_dir_htree_level(sb) < PXT4_HTREE_LEVEL) {
@@ -2369,10 +2369,10 @@ again:
 		if (!add_level) {
 			unsigned icount1 = icount/2, icount2 = icount - icount1;
 			unsigned hash2 = dx_get_hash(entries + icount1);
-			dxtrace(printk(KERN_DEBUG "Split indpxt2 %i/%i\n",
+			dxtrace(printk(KERN_DEBUG "Split index %i/%i\n",
 				       icount1, icount2));
 
-			BUFFER_TRACE(frame->bh, "get_write_access"); /* indpxt2 root */
+			BUFFER_TRACE(frame->bh, "get_write_access"); /* index root */
 			err = pxt4_journal_get_write_access(handle,
 							     (frame - 1)->bh);
 			if (err)
@@ -2384,15 +2384,15 @@ again:
 			dx_set_count(entries2, icount2);
 			dx_set_limit(entries2, dx_node_limit(dir));
 
-			/* Which indpxt2 block gets the new entry? */
+			/* Which index block gets the new entry? */
 			if (at - entries >= icount1) {
 				frame->at = at = at - entries - icount1 + entries2;
 				frame->entries = entries = entries2;
 				swap(frame->bh, bh2);
 			}
 			dx_insert_block((frame - 1), hash2, newblock);
-			dxtrace(dx_show_indpxt2("node", frame->entries));
-			dxtrace(dx_show_indpxt2("node",
+			dxtrace(dx_show_index("node", frame->entries));
+			dxtrace(dx_show_index("node",
 			       ((struct dx_node *) bh2->b_data)->entries));
 			err = pxt4_handle_dirty_dx_node(handle, dir, bh2);
 			if (err)
@@ -2419,7 +2419,7 @@ again:
 			dxroot = (struct dx_root *)frames[0].bh->b_data;
 			dxroot->info.indirect_levels += 1;
 			dxtrace(printk(KERN_DEBUG
-				       "Creating %d level indpxt2...\n",
+				       "Creating %d level index...\n",
 				       dxroot->info.indirect_levels));
 			err = pxt4_handle_dirty_dx_node(handle, dir, frame->bh);
 			if (err)
@@ -2489,7 +2489,7 @@ int pxt4_generic_delete_entry(handle_t *handle,
 		}
 		i += pxt4_rec_len_from_disk(de->rec_len, blocksize);
 		pde = de;
-		de = pxt4_npxt2t_entry(de, blocksize);
+		de = pxt4_next_entry(de, blocksize);
 	}
 	return -ENOENT;
 }
@@ -2589,7 +2589,7 @@ static int pxt4_add_nondir(handle_t *handle,
  * with d_instantiate().
  */
 static int pxt4_create(struct inode *dir, struct dentry *dentry, umode_t mode,
-		       bool pxt2cl)
+		       bool excl)
 {
 	handle_t *handle;
 	struct inode *inode;
@@ -2705,7 +2705,7 @@ struct pxt4_dir_entry_2 *pxt4_init_dot_dotdot(struct inode *inode,
 	strcpy(de->name, ".");
 	pxt4_set_de_type(inode->i_sb, de, S_IFDIR);
 
-	de = pxt4_npxt2t_entry(de, blocksize);
+	de = pxt4_next_entry(de, blocksize);
 	de->inode = cpu_to_le32(parent_ino);
 	de->name_len = 2;
 	if (!dotdot_real_len)
@@ -2718,7 +2718,7 @@ struct pxt4_dir_entry_2 *pxt4_init_dot_dotdot(struct inode *inode,
 	strcpy(de->name, "..");
 	pxt4_set_de_type(inode->i_sb, de, S_IFDIR);
 
-	return pxt4_npxt2t_entry(de, blocksize);
+	return pxt4_next_entry(de, blocksize);
 }
 
 static int pxt4_init_new_dir(handle_t *handle, struct inode *dir,
@@ -2859,7 +2859,7 @@ bool pxt4_empty_dir(struct inode *inode)
 		return true;
 	}
 	offset = pxt4_rec_len_from_disk(de->rec_len, sb->s_blocksize);
-	de = pxt4_npxt2t_entry(de, sb->s_blocksize);
+	de = pxt4_next_entry(de, sb->s_blocksize);
 	if (pxt4_check_dir_entry(inode, NULL, de, bh, bh->b_data, bh->b_size,
 				 offset) ||
 	    le32_to_cpu(de->inode) == 0 || strcmp("..", de->name)) {
@@ -2907,7 +2907,7 @@ bool pxt4_empty_dir(struct inode *inode)
  * At filesystem recovery time, we walk this list deleting unlinked
  * inodes and truncating linked inodes in pxt4_orphan_cleanup().
  *
- * Orphan list manipulation functions must be called under i_mutpxt2 unless
+ * Orphan list manipulation functions must be called under i_mutex unless
  * we are just creating the inode or deleting it.
  */
 int pxt4_orphan_add(handle_t *handle, struct inode *inode)
@@ -2933,7 +2933,7 @@ int pxt4_orphan_add(handle_t *handle, struct inode *inode)
 	/*
 	 * Orphan handling is only valid for files with data blocks
 	 * being truncated, or files being unlinked. Note that we either
-	 * hold i_mutpxt2, or the inode can not be referenced from outside,
+	 * hold i_mutex, or the inode can not be referenced from outside,
 	 * so i_nlink should not be bumped due to race
 	 */
 	J_ASSERT((S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) ||
@@ -2948,7 +2948,7 @@ int pxt4_orphan_add(handle_t *handle, struct inode *inode)
 	if (err)
 		goto out;
 
-	mutpxt2_lock(&sbi->s_orphan_lock);
+	mutex_lock(&sbi->s_orphan_lock);
 	/*
 	 * Due to previous errors inode may be already a part of on-disk
 	 * orphan list. If so skip on-disk list modification.
@@ -2961,7 +2961,7 @@ int pxt4_orphan_add(handle_t *handle, struct inode *inode)
 		dirty = true;
 	}
 	list_add(&PXT4_I(inode)->i_orphan, &sbi->s_orphan);
-	mutpxt2_unlock(&sbi->s_orphan_lock);
+	mutex_unlock(&sbi->s_orphan_lock);
 
 	if (dirty) {
 		err = pxt4_handle_dirty_super(handle, sb);
@@ -2974,9 +2974,9 @@ int pxt4_orphan_add(handle_t *handle, struct inode *inode)
 			 * addition to on disk orphan list failed. Stray orphan
 			 * list entries can cause panics at unmount time.
 			 */
-			mutpxt2_lock(&sbi->s_orphan_lock);
+			mutex_lock(&sbi->s_orphan_lock);
 			list_del_init(&PXT4_I(inode)->i_orphan);
-			mutpxt2_unlock(&sbi->s_orphan_lock);
+			mutex_unlock(&sbi->s_orphan_lock);
 		}
 	} else
 		brelse(iloc.bh);
@@ -2998,7 +2998,7 @@ int pxt4_orphan_del(handle_t *handle, struct inode *inode)
 	struct list_head *prev;
 	struct pxt4_inode_info *ei = PXT4_I(inode);
 	struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
-	__u32 ino_npxt2t;
+	__u32 ino_next;
 	struct pxt4_iloc iloc;
 	int err = 0;
 
@@ -3016,7 +3016,7 @@ int pxt4_orphan_del(handle_t *handle, struct inode *inode)
 		err = pxt4_reserve_inode_write(handle, inode, &iloc);
 	}
 
-	mutpxt2_lock(&sbi->s_orphan_lock);
+	mutex_lock(&sbi->s_orphan_lock);
 	jbd_debug(4, "remove inode %lu from orphan list\n", inode->i_ino);
 
 	prev = ei->i_orphan.prev;
@@ -3027,21 +3027,21 @@ int pxt4_orphan_del(handle_t *handle, struct inode *inode)
 	 * disk, but we still need to remove the inode from the linked
 	 * list in memory. */
 	if (!handle || err) {
-		mutpxt2_unlock(&sbi->s_orphan_lock);
+		mutex_unlock(&sbi->s_orphan_lock);
 		goto out_err;
 	}
 
-	ino_npxt2t = NEXT_ORPHAN(inode);
+	ino_next = NEXT_ORPHAN(inode);
 	if (prev == &sbi->s_orphan) {
-		jbd_debug(4, "superblock will point to %u\n", ino_npxt2t);
+		jbd_debug(4, "superblock will point to %u\n", ino_next);
 		BUFFER_TRACE(sbi->s_sbh, "get_write_access");
 		err = pxt4_journal_get_write_access(handle, sbi->s_sbh);
 		if (err) {
-			mutpxt2_unlock(&sbi->s_orphan_lock);
+			mutex_unlock(&sbi->s_orphan_lock);
 			goto out_brelse;
 		}
-		sbi->s_es->s_last_orphan = cpu_to_le32(ino_npxt2t);
-		mutpxt2_unlock(&sbi->s_orphan_lock);
+		sbi->s_es->s_last_orphan = cpu_to_le32(ino_next);
+		mutex_unlock(&sbi->s_orphan_lock);
 		err = pxt4_handle_dirty_super(handle, inode->i_sb);
 	} else {
 		struct pxt4_iloc iloc2;
@@ -3049,15 +3049,15 @@ int pxt4_orphan_del(handle_t *handle, struct inode *inode)
 			&list_entry(prev, struct pxt4_inode_info, i_orphan)->vfs_inode;
 
 		jbd_debug(4, "orphan inode %lu will point to %u\n",
-			  i_prev->i_ino, ino_npxt2t);
+			  i_prev->i_ino, ino_next);
 		err = pxt4_reserve_inode_write(handle, i_prev, &iloc2);
 		if (err) {
-			mutpxt2_unlock(&sbi->s_orphan_lock);
+			mutex_unlock(&sbi->s_orphan_lock);
 			goto out_brelse;
 		}
-		NEXT_ORPHAN(i_prev) = ino_npxt2t;
+		NEXT_ORPHAN(i_prev) = ino_next;
 		err = pxt4_mark_iloc_dirty(handle, i_prev, &iloc2);
-		mutpxt2_unlock(&sbi->s_orphan_lock);
+		mutex_unlock(&sbi->s_orphan_lock);
 	}
 	if (err)
 		goto out_brelse;
@@ -3235,7 +3235,7 @@ end_unlink:
 	brelse(bh);
 	if (handle)
 		pxt4_journal_stop(handle);
-	trace_pxt4_unlink_pxt2it(dentry, retval);
+	trace_pxt4_unlink_exit(dentry, retval);
 	return retval;
 }
 
@@ -3338,7 +3338,7 @@ static int pxt4_symlink(struct inode *dir,
 		if (err)
 			goto err_drop_inode;
 	} else {
-		/* clear the pxt2tent format for fast symlink */
+		/* clear the extent format for fast symlink */
 		pxt4_clear_inode_flag(inode, PXT4_INODE_EXTENTS);
 		if (!IS_ENCRYPTED(inode)) {
 			inode->i_op = &pxt4_fast_symlink_inode_operations;
@@ -3448,7 +3448,7 @@ static struct buffer_head *pxt4_get_first_dir_block(handle_t *handle,
 			*retval = PTR_ERR(bh);
 			return NULL;
 		}
-		*parent_de = pxt4_npxt2t_entry(
+		*parent_de = pxt4_next_entry(
 					(struct pxt4_dir_entry_2 *)bh->b_data,
 					inode->i_sb->s_blocksize);
 		return bh;
@@ -3762,9 +3762,9 @@ static int pxt4_rename(struct inode *old_dir, struct dentry *old_dentry,
 	/*
 	 * If we're renaming a file within an inline_data dir and adding or
 	 * setting the new dirent causes a conversion from inline_data to
-	 * pxt2tents/blockmap, we need to force the dirent delete code to
+	 * extents/blockmap, we need to force the dirent delete code to
 	 * re-read the directory, or else we end up trying to delete a dirent
-	 * from what is now the pxt2tent tree root (or a block map).
+	 * from what is now the extent tree root (or a block map).
 	 */
 	force_reread = (new.dir->i_ino == old.dir->i_ino &&
 			pxt4_test_inode_flag(new.dir, PXT4_INODE_INLINE_DATA));
@@ -3910,7 +3910,7 @@ static int pxt4_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 		goto end_rename;
 	}
 
-	/* RENAME_EXCHANGE case: old *and* new must both pxt2ist */
+	/* RENAME_EXCHANGE case: old *and* new must both exist */
 	if (!new.bh || le32_to_cpu(new.de->inode) != new.inode->i_ino)
 		goto end_rename;
 

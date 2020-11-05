@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * linux/fs/pxt4/xattr_trusted.c
- * Handler for trusted pxt2tended attributes.
+ * Handler for trusted extended attributes.
  *
  * Copyright (C) 2003 by Andreas Gruenbacher, <a.gruenbacher@computer.org>
  */

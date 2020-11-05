@@ -6,7 +6,7 @@
  *
  * Copyright 1998--1999 Red Hat corp --- All Rights Reserved
  *
- * Ext4-specific journaling pxt2tensions.
+ * Ext4-specific journaling extensions.
  */
 
 #ifndef _PXT4_JBD3_H
@@ -25,13 +25,13 @@
  * indirection blocks, the group and superblock summaries, and the data
  * block to complete the transaction.
  *
- * For pxt2tents-enabled fs we may have to allocate and modify up to
+ * For extents-enabled fs we may have to allocate and modify up to
  * 5 levels of tree, data block (for each of these we need bitmap + group
  * summaries), root which is stored in the inode, sb
  */
 
 #define PXT4_SINGLEDATA_TRANS_BLOCKS(sb)				\
-	(pxt4_has_feature_pxt2tents(sb) ? 20U : 8U)
+	(pxt4_has_feature_extents(sb) ? 20U : 8U)
 
 /* Extended attribute operations touch at most two data buffers,
  * two bitmap buffers, and two group summaries, in addition to the inode
@@ -66,7 +66,7 @@
 #define PXT4_MAX_TRANS_DATA		64U
 
 /* We break up a large truncate or write transaction once the handle's
- * buffer credits gets this low, we need either to pxt2tend the
+ * buffer credits gets this low, we need either to extend the
  * transaction or to start a new one.  Reserve enough space here for
  * inode, bitmap, superblock, group and indirection updates for at least
  * one block, plus two quota updates.  Quota allocations are not
@@ -76,8 +76,8 @@
 
 /*
  * Number of credits needed if we need to insert an entry into a
- * directory.  For each new indpxt2 block, we need 4 blocks (old indpxt2
- * block, new indpxt2 block, bitmap block, bg summary).  For normal
+ * directory.  For each new index block, we need 4 blocks (old index
+ * block, new index block, bitmap block, bg summary).  For normal
  * htree directories there are 2 levels; if the largedir feature
  * enabled it's 3 levels.
  */
@@ -153,13 +153,13 @@ struct pxt4_journal_cb_entry {
  *        @rc: journal state at commit (0 = transaction committed properly)
  * @jce: journal callback data (internal and function private data struct)
  *
- * The registered function will be called in the contpxt2t of the journal thread
+ * The registered function will be called in the context of the journal thread
  * after the transaction for which the handle was created has completed.
  *
  * No locks are held when the callback function is called, so it is safe to
  * call blocking functions from within the callback, but the callback should
  * not block or run for too long, or the filesystem will be blocked waiting for
- * the npxt2t transaction to commit. No journaling functions can be used, or
+ * the next transaction to commit. No journaling functions can be used, or
  * there is a risk of deadlock.
  *
  * There is no guaranteed calling order of multiple registered callbacks on
@@ -224,8 +224,8 @@ int pxt4_reserve_inode_write(handle_t *handle, struct inode *inode,
 
 int pxt4_mark_inode_dirty(handle_t *handle, struct inode *inode);
 
-int pxt4_pxt2pand_pxt2tra_isize(struct inode *inode,
-			    unsigned int new_pxt2tra_isize,
+int pxt4_expand_extra_isize(struct inode *inode,
+			    unsigned int new_extra_isize,
 			    struct pxt4_iloc *iloc);
 /*
  * Wrapper functions with which pxt4 calls into JBD.
@@ -332,10 +332,10 @@ static inline handle_t *pxt4_journal_current_handle(void)
 	return journal_current_handle();
 }
 
-static inline int pxt4_journal_pxt2tend(handle_t *handle, int nblocks)
+static inline int pxt4_journal_extend(handle_t *handle, int nblocks)
 {
 	if (pxt4_handle_valid(handle))
-		return jbd3_journal_pxt2tend(handle, nblocks);
+		return jbd3_journal_extend(handle, nblocks);
 	return 0;
 }
 
@@ -440,7 +440,7 @@ static inline int pxt4_should_writeback_data(struct inode *inode)
 /*
  * This function controls whether or not we should try to go down the
  * dioread_nolock code paths, which makes it safe to avoid taking
- * i_mutpxt2 for direct I/O reads.  This only works for pxt2tent-based
+ * i_mutex for direct I/O reads.  This only works for extent-based
  * files, and it doesn't work if data journaling is enabled, since the
  * dioread_nolock code uses b_private to pass information back to the
  * I/O completion handler, and this conflicts with the jbd's use of

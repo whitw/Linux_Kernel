@@ -2,7 +2,7 @@
 /*
   File: fs/pxt4/xattr.h
 
-  On-disk format of pxt2tended attributes for the pxt4 filesystem.
+  On-disk format of extended attributes for the pxt4 filesystem.
 
   (C) 2001 Andreas Gruenbacher, <a.gruenbacher@computer.org>
 */
@@ -15,7 +15,7 @@
 /* Maximum number of references to one attribute block */
 #define PXT4_XATTR_REFCOUNT_MAX		1024
 
-/* Name indpxt2es */
+/* Name indexes */
 #define PXT4_XATTR_INDEX_USER			1
 #define PXT4_XATTR_INDEX_POSIX_ACL_ACCESS	2
 #define PXT4_XATTR_INDEX_POSIX_ACL_DEFAULT	3
@@ -43,7 +43,7 @@ struct pxt4_xattr_ibody_header {
 
 struct pxt4_xattr_entry {
 	__u8	e_name_len;	/* length of name */
-	__u8	e_name_indpxt2;	/* attribute name indpxt2 */
+	__u8	e_name_index;	/* attribute name index */
 	__le16	e_value_offs;	/* offset in disk block of value */
 	__le32	e_value_inum;	/* inode in which the value is stored */
 	__le32	e_value_size;	/* size of attribute value */
@@ -67,7 +67,7 @@ struct pxt4_xattr_entry {
 	((struct pxt4_xattr_ibody_header *) \
 		((void *)raw_inode + \
 		PXT4_GOOD_OLD_INODE_SIZE + \
-		PXT4_I(inode)->i_pxt2tra_isize))
+		PXT4_I(inode)->i_extra_isize))
 #define IFIRST(hdr) ((struct pxt4_xattr_entry *)((hdr)+1))
 
 /*
@@ -82,7 +82,7 @@ struct pxt4_xattr_entry {
 #define PXT4_XATTR_SIZE_MAX (1 << 24)
 
 /*
- * The minimum size of EA value when you start storing it in an pxt2ternal inode
+ * The minimum size of EA value when you start storing it in an external inode
  * size of block - size of header - size of 1 entry - 4 null bytes
 */
 #define PXT4_XATTR_MIN_LARGE_EA_SIZE(b)					\
@@ -99,7 +99,7 @@ struct pxt4_xattr_info {
 	const char *name;
 	const void *value;
 	size_t value_len;
-	int name_indpxt2;
+	int name_index;
 	int in_inode;
 };
 
@@ -121,9 +121,9 @@ struct pxt4_xattr_inode_array {
 	struct inode *inodes[0];
 };
 
-pxt2tern const struct xattr_handler pxt4_xattr_user_handler;
-pxt2tern const struct xattr_handler pxt4_xattr_trusted_handler;
-pxt2tern const struct xattr_handler pxt4_xattr_security_handler;
+extern const struct xattr_handler pxt4_xattr_user_handler;
+extern const struct xattr_handler pxt4_xattr_trusted_handler;
+extern const struct xattr_handler pxt4_xattr_security_handler;
 
 #define PXT4_XATTR_NAME_ENCRYPTION_CONTEXT "c"
 
@@ -131,8 +131,8 @@ pxt2tern const struct xattr_handler pxt4_xattr_security_handler;
  * The PXT4_STATE_NO_EXPAND is overloaded and used for two purposes.
  * The first is to signal that there the inline xattrs and data are
  * taking up so much space that we might as well not keep trying to
- * pxt2pand it.  The second is that xattr_sem is taken for writing, so
- * we shouldn't try to recurse into the inode pxt2pansion.  For this
+ * expand it.  The second is that xattr_sem is taken for writing, so
+ * we shouldn't try to recurse into the inode expansion.  For this
  * second case, we need to make sure that we take save and restore the
  * NO_EXPAND state flag appropriately.
  */
@@ -159,41 +159,41 @@ static inline void pxt4_write_unlock_xattr(struct inode *inode, int *save)
 	up_write(&PXT4_I(inode)->xattr_sem);
 }
 
-pxt2tern ssize_t pxt4_listxattr(struct dentry *, char *, size_t);
+extern ssize_t pxt4_listxattr(struct dentry *, char *, size_t);
 
-pxt2tern int pxt4_xattr_get(struct inode *, int, const char *, void *, size_t);
-pxt2tern int pxt4_xattr_set(struct inode *, int, const char *, const void *, size_t, int);
-pxt2tern int pxt4_xattr_set_handle(handle_t *, struct inode *, int, const char *, const void *, size_t, int);
-pxt2tern int pxt4_xattr_set_credits(struct inode *inode, size_t value_len,
+extern int pxt4_xattr_get(struct inode *, int, const char *, void *, size_t);
+extern int pxt4_xattr_set(struct inode *, int, const char *, const void *, size_t, int);
+extern int pxt4_xattr_set_handle(handle_t *, struct inode *, int, const char *, const void *, size_t, int);
+extern int pxt4_xattr_set_credits(struct inode *inode, size_t value_len,
 				  bool is_create, int *credits);
-pxt2tern int __pxt4_xattr_set_credits(struct super_block *sb, struct inode *inode,
+extern int __pxt4_xattr_set_credits(struct super_block *sb, struct inode *inode,
 				struct buffer_head *block_bh, size_t value_len,
 				bool is_create);
 
-pxt2tern int pxt4_xattr_delete_inode(handle_t *handle, struct inode *inode,
+extern int pxt4_xattr_delete_inode(handle_t *handle, struct inode *inode,
 				   struct pxt4_xattr_inode_array **array,
-				   int pxt2tra_credits);
-pxt2tern void pxt4_xattr_inode_array_free(struct pxt4_xattr_inode_array *array);
+				   int extra_credits);
+extern void pxt4_xattr_inode_array_free(struct pxt4_xattr_inode_array *array);
 
-pxt2tern int pxt4_pxt2pand_pxt2tra_isize_ea(struct inode *inode, int new_pxt2tra_isize,
+extern int pxt4_expand_extra_isize_ea(struct inode *inode, int new_extra_isize,
 			    struct pxt4_inode *raw_inode, handle_t *handle);
 
-pxt2tern const struct xattr_handler *pxt4_xattr_handlers[];
+extern const struct xattr_handler *pxt4_xattr_handlers[];
 
-pxt2tern int pxt4_xattr_ibody_find(struct inode *inode, struct pxt4_xattr_info *i,
+extern int pxt4_xattr_ibody_find(struct inode *inode, struct pxt4_xattr_info *i,
 				 struct pxt4_xattr_ibody_find *is);
-pxt2tern int pxt4_xattr_ibody_get(struct inode *inode, int name_indpxt2,
+extern int pxt4_xattr_ibody_get(struct inode *inode, int name_index,
 				const char *name,
 				void *buffer, size_t buffer_size);
-pxt2tern int pxt4_xattr_ibody_inline_set(handle_t *handle, struct inode *inode,
+extern int pxt4_xattr_ibody_inline_set(handle_t *handle, struct inode *inode,
 				       struct pxt4_xattr_info *i,
 				       struct pxt4_xattr_ibody_find *is);
 
-pxt2tern struct mb_cache *pxt4_xattr_create_cache(void);
-pxt2tern void pxt4_xattr_destroy_cache(struct mb_cache *);
+extern struct mb_cache *pxt4_xattr_create_cache(void);
+extern void pxt4_xattr_destroy_cache(struct mb_cache *);
 
 #ifdef CONFIG_EXT4_FS_SECURITY
-pxt2tern int pxt4_init_security(handle_t *handle, struct inode *inode,
+extern int pxt4_init_security(handle_t *handle, struct inode *inode,
 			      struct inode *dir, const struct qstr *qstr);
 #else
 static inline int pxt4_init_security(handle_t *handle, struct inode *inode,
@@ -204,9 +204,9 @@ static inline int pxt4_init_security(handle_t *handle, struct inode *inode,
 #endif
 
 #ifdef CONFIG_LOCKDEP
-pxt2tern void pxt4_xattr_inode_set_class(struct inode *ea_inode);
+extern void pxt4_xattr_inode_set_class(struct inode *ea_inode);
 #else
 static inline void pxt4_xattr_inode_set_class(struct inode *ea_inode) { }
 #endif
 
-pxt2tern int pxt4_get_inode_usage(struct inode *inode, qsize_t *usage);
+extern int pxt4_get_inode_usage(struct inode *inode, qsize_t *usage);

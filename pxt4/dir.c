@@ -18,7 +18,7 @@
  *  Big-endian to little-endian byte-swapping/bitmaps by
  *        David S. Miller (davem@caip.rutgers.edu), 1995
  *
- * Hash Tree Directory indpxt2ing (c) 2001  Daniel Phillips
+ * Hash Tree Directory indexing (c) 2001  Daniel Phillips
  *
  */
 
@@ -30,15 +30,15 @@
 #include "pxt4.h"
 #include "xattr.h"
 
-static int pxt4_dx_readdir(struct file *, struct dir_contpxt2t *);
+static int pxt4_dx_readdir(struct file *, struct dir_context *);
 
 /**
- * is_dx_dir() - check if a directory is using htree indpxt2ing
+ * is_dx_dir() - check if a directory is using htree indexing
  * @inode: directory inode
  *
- * Check if the given dir-inode refers to an htree-indpxt2ed directory
+ * Check if the given dir-inode refers to an htree-indexed directory
  * (or a directory which could potentially get converted to use htree
- * indpxt2ing).
+ * indexing).
  *
  * Return 1 if it is a dx dir, 0 if not
  */
@@ -46,7 +46,7 @@ static int is_dx_dir(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 
-	if (pxt4_has_feature_dir_indpxt2(inode->i_sb) &&
+	if (pxt4_has_feature_dir_index(inode->i_sb) &&
 	    ((pxt4_test_inode_flag(inode, PXT4_INODE_INDEX)) ||
 	     ((inode->i_size >> sb->s_blocksize_bits) == 1) ||
 	     pxt4_has_inline_data(inode)))
@@ -58,7 +58,7 @@ static int is_dx_dir(struct inode *inode)
 /*
  * Return 0 if the directory entry is OK, and 1 if there is a problem
  *
- * Note: this is the opposite of what pxt2t2 and pxt2t3 historically returned...
+ * Note: this is the opposite of what pxt2 and ext3 historically returned...
  *
  * bh passed here can be an inode block or a dir data block, depending
  * on the inode inline data flag.
@@ -108,7 +108,7 @@ int __pxt4_check_dir_entry(const char *function, unsigned int line,
 	return 1;
 }
 
-static int pxt4_readdir(struct file *file, struct dir_contpxt2t *ctx)
+static int pxt4_readdir(struct file *file, struct dir_context *ctx)
 {
 	unsigned int offset;
 	int i;
@@ -175,14 +175,14 @@ static int pxt4_readdir(struct file *file, struct dir_contpxt2t *ctx)
 			continue;
 		}
 		if (err > 0) {
-			pgoff_t indpxt2 = map.m_pblk >>
+			pgoff_t index = map.m_pblk >>
 					(PAGE_SHIFT - inode->i_blkbits);
-			if (!ra_has_indpxt2(&file->f_ra, indpxt2))
+			if (!ra_has_index(&file->f_ra, index))
 				page_cache_sync_readahead(
 					sb->s_bdev->bd_inode->i_mapping,
 					&file->f_ra, file,
-					indpxt2, 1);
-			file->f_ra.prev_pos = (loff_t)indpxt2 << PAGE_SHIFT;
+					index, 1);
+			file->f_ra.prev_pos = (loff_t)index << PAGE_SHIFT;
 			bh = pxt4_bread(NULL, inode, map.m_lblk, 0);
 			if (IS_ERR(bh)) {
 				err = PTR_ERR(bh);
@@ -220,7 +220,7 @@ static int pxt4_readdir(struct file *file, struct dir_contpxt2t *ctx)
 			for (i = 0; i < sb->s_blocksize && i < offset; ) {
 				de = (struct pxt4_dir_entry_2 *)
 					(bh->b_data + i);
-				/* It's too pxt2pensive to do a full
+				/* It's too expensive to do a full
 				 * dirent test each time round this
 				 * loop, but we do have to test at
 				 * least that it is non-zero.  A
@@ -245,7 +245,7 @@ static int pxt4_readdir(struct file *file, struct dir_contpxt2t *ctx)
 						 bh->b_data, bh->b_size,
 						 offset)) {
 				/*
-				 * On error, skip to the npxt2t block
+				 * On error, skip to the next block
 				 */
 				ctx->pos = (ctx->pos |
 						(sb->s_blocksize - 1)) + 1;
@@ -310,8 +310,8 @@ static inline int is_32bit_api(void)
  * These functions convert from the major/minor hash to an f_pos
  * value for dx directories
  *
- * Upper layer (for pxt2ample NFS) should specify FMODE_32BITHASH or
- * FMODE_64BITHASH pxt2plicitly. On the other hand, we allow pxt4 to be mounted
+ * Upper layer (for example NFS) should specify FMODE_32BITHASH or
+ * FMODE_64BITHASH explicitly. On the other hand, we allow pxt4 to be mounted
  * directly on both 32-bit and 64-bit nodes, under such case, neither
  * FMODE_32BITHASH nor FMODE_64BITHASH is specified.
  */
@@ -389,7 +389,7 @@ struct fname {
 	__u32		hash;
 	__u32		minor_hash;
 	struct rb_node	rb_hash;
-	struct fname	*npxt2t;
+	struct fname	*next;
 	__u32		inode;
 	__u8		name_len;
 	__u8		file_type;
@@ -402,12 +402,12 @@ struct fname {
  */
 static void free_rb_tree_fname(struct rb_root *root)
 {
-	struct fname *fname, *npxt2t;
+	struct fname *fname, *next;
 
-	rbtree_postorder_for_each_entry_safe(fname, npxt2t, root, rb_hash)
+	rbtree_postorder_for_each_entry_safe(fname, next, root, rb_hash)
 		while (fname) {
 			struct fname *old = fname;
-			fname = fname->npxt2t;
+			fname = fname->next;
 			kfree(old);
 		}
 
@@ -477,8 +477,8 @@ int pxt4_htree_store_dirent(struct file *dir_file, __u32 hash,
 		 */
 		if ((new_fn->hash == fname->hash) &&
 		    (new_fn->minor_hash == fname->minor_hash)) {
-			new_fn->npxt2t = fname->npxt2t;
-			fname->npxt2t = new_fn;
+			new_fn->next = fname->next;
+			fname->next = new_fn;
 			return 0;
 		}
 
@@ -504,7 +504,7 @@ int pxt4_htree_store_dirent(struct file *dir_file, __u32 hash,
  * for all entres on the fname linked list.  (Normally there is only
  * one entry on the linked list, unless there are 62 bit hash collisions.)
  */
-static int call_filldir(struct file *file, struct dir_contpxt2t *ctx,
+static int call_filldir(struct file *file, struct dir_context *ctx,
 			struct fname *fname)
 {
 	struct dir_private_info *info = file->private_data;
@@ -523,15 +523,15 @@ static int call_filldir(struct file *file, struct dir_contpxt2t *ctx,
 				fname->name_len,
 				fname->inode,
 				get_dtype(sb, fname->file_type))) {
-			info->pxt2tra_fname = fname;
+			info->extra_fname = fname;
 			return 1;
 		}
-		fname = fname->npxt2t;
+		fname = fname->next;
 	}
 	return 0;
 }
 
-static int pxt4_dx_readdir(struct file *file, struct dir_contpxt2t *ctx)
+static int pxt4_dx_readdir(struct file *file, struct dir_context *ctx)
 {
 	struct dir_private_info *info = file->private_data;
 	struct inode *inode = file_inode(file);
@@ -552,7 +552,7 @@ static int pxt4_dx_readdir(struct file *file, struct dir_contpxt2t *ctx)
 	if (info->last_pos != ctx->pos) {
 		free_rb_tree_fname(&info->root);
 		info->curr_node = NULL;
-		info->pxt2tra_fname = NULL;
+		info->extra_fname = NULL;
 		info->curr_hash = pos2maj_hash(file, ctx->pos);
 		info->curr_minor_hash = pos2min_hash(file, ctx->pos);
 	}
@@ -561,11 +561,11 @@ static int pxt4_dx_readdir(struct file *file, struct dir_contpxt2t *ctx)
 	 * If there are any leftover names on the hash collision
 	 * chain, return them first.
 	 */
-	if (info->pxt2tra_fname) {
-		if (call_filldir(file, ctx, info->pxt2tra_fname))
+	if (info->extra_fname) {
+		if (call_filldir(file, ctx, info->extra_fname))
 			goto finished;
-		info->pxt2tra_fname = NULL;
-		goto npxt2t_node;
+		info->extra_fname = NULL;
+		goto next_node;
 	} else if (!info->curr_node)
 		info->curr_node = rb_first(&info->root);
 
@@ -582,7 +582,7 @@ static int pxt4_dx_readdir(struct file *file, struct dir_contpxt2t *ctx)
 			file->f_version = inode_query_iversion(inode);
 			ret = pxt4_htree_fill_tree(file, info->curr_hash,
 						   info->curr_minor_hash,
-						   &info->npxt2t_hash);
+						   &info->next_hash);
 			if (ret < 0)
 				return ret;
 			if (ret == 0) {
@@ -597,19 +597,19 @@ static int pxt4_dx_readdir(struct file *file, struct dir_contpxt2t *ctx)
 		info->curr_minor_hash = fname->minor_hash;
 		if (call_filldir(file, ctx, fname))
 			break;
-	npxt2t_node:
-		info->curr_node = rb_npxt2t(info->curr_node);
+	next_node:
+		info->curr_node = rb_next(info->curr_node);
 		if (info->curr_node) {
 			fname = rb_entry(info->curr_node, struct fname,
 					 rb_hash);
 			info->curr_hash = fname->hash;
 			info->curr_minor_hash = fname->minor_hash;
 		} else {
-			if (info->npxt2t_hash == ~0) {
+			if (info->next_hash == ~0) {
 				ctx->pos = pxt4_get_htree_eof(file);
 				break;
 			}
-			info->curr_hash = info->npxt2t_hash;
+			info->curr_hash = info->next_hash;
 			info->curr_minor_hash = 0;
 		}
 	}

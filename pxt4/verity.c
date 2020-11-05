@@ -16,7 +16,7 @@
  * avoids having to depend on the EA_INODE feature and on rearchitecturing
  * pxt4's xattr support to support paging multi-gigabyte xattrs into memory, and
  * to support encrypting xattrs.  Note that the verity metadata *must* be
- * encrypted when the file is, since it contains hashes of the plaintpxt2t data.
+ * encrypted when the file is, since it contains hashes of the plaintext data.
  *
  * Using a 64K boundary rather than a 4K one keeps things ready for
  * architectures with 64K pages, and it doesn't necessarily waste space on-disk
@@ -26,7 +26,7 @@
 #include <linux/quotaops.h>
 
 #include "pxt4.h"
-#include "pxt4_pxt2tents.h"
+#include "pxt4_extents.h"
 #include "pxt4_jbd3.h"
 
 static inline loff_t pxt4_verity_metadata_pos(const struct inode *inode)
@@ -136,7 +136,7 @@ static int pxt4_begin_enable_verity(struct file *filp)
 
 	if (!pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)) {
 		pxt4_warning_inode(inode,
-				   "verity is only allowed on pxt2tent-based files");
+				   "verity is only allowed on extent-based files");
 		return -EOPNOTSUPP;
 	}
 
@@ -161,10 +161,10 @@ static int pxt4_begin_enable_verity(struct file *filp)
 }
 
 /*
- * pxt4 stores the verity descriptor beginning on the npxt2t filesystem block
+ * pxt4 stores the verity descriptor beginning on the next filesystem block
  * boundary after the Merkle tree.  Then, the descriptor size is stored in the
  * last 4 bytes of the last allocated filesystem block --- which is either the
- * block in which the descriptor ends, or the npxt2t block after that if there
+ * block in which the descriptor ends, or the next block after that if there
  * weren't at least 4 bytes remaining.
  *
  * We can't simply store the descriptor in an xattr because it *must* be
@@ -253,8 +253,8 @@ static int pxt4_get_verity_descriptor_location(struct inode *inode,
 					       size_t *desc_size_ret,
 					       u64 *desc_pos_ret)
 {
-	struct pxt4_pxt2t_path *path;
-	struct pxt4_pxt2tent *last_pxt2tent;
+	struct pxt4_ext_path *path;
+	struct pxt4_extent *last_extent;
 	u32 end_lblk;
 	u64 desc_size_pos;
 	__le32 desc_size_disk;
@@ -268,26 +268,26 @@ static int pxt4_get_verity_descriptor_location(struct inode *inode,
 	 */
 
 	if (!pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)) {
-		PXT4_ERROR_INODE(inode, "verity file doesn't use pxt2tents");
+		PXT4_ERROR_INODE(inode, "verity file doesn't use extents");
 		return -EFSCORRUPTED;
 	}
 
-	path = pxt4_find_pxt2tent(inode, EXT_MAX_BLOCKS - 1, NULL, 0);
+	path = pxt4_find_extent(inode, EXT_MAX_BLOCKS - 1, NULL, 0);
 	if (IS_ERR(path))
 		return PTR_ERR(path);
 
-	last_pxt2tent = path[path->p_depth].p_pxt2t;
-	if (!last_pxt2tent) {
-		PXT4_ERROR_INODE(inode, "verity file has no pxt2tents");
-		pxt4_pxt2t_drop_refs(path);
+	last_extent = path[path->p_depth].p_ext;
+	if (!last_extent) {
+		PXT4_ERROR_INODE(inode, "verity file has no extents");
+		pxt4_ext_drop_refs(path);
 		kfree(path);
 		return -EFSCORRUPTED;
 	}
 
-	end_lblk = le32_to_cpu(last_pxt2tent->ee_block) +
-		   pxt4_pxt2t_get_actual_len(last_pxt2tent);
+	end_lblk = le32_to_cpu(last_extent->ee_block) +
+		   pxt4_ext_get_actual_len(last_extent);
 	desc_size_pos = (u64)end_lblk << inode->i_blkbits;
-	pxt4_pxt2t_drop_refs(path);
+	pxt4_ext_drop_refs(path);
 	kfree(path);
 
 	if (desc_size_pos < sizeof(desc_size_disk))
@@ -343,17 +343,17 @@ static int pxt4_get_verity_descriptor(struct inode *inode, void *buf,
 }
 
 static struct page *pxt4_read_merkle_tree_page(struct inode *inode,
-					       pgoff_t indpxt2)
+					       pgoff_t index)
 {
-	indpxt2 += pxt4_verity_metadata_pos(inode) >> PAGE_SHIFT;
+	index += pxt4_verity_metadata_pos(inode) >> PAGE_SHIFT;
 
-	return read_mapping_page(inode->i_mapping, indpxt2, NULL);
+	return read_mapping_page(inode->i_mapping, index, NULL);
 }
 
 static int pxt4_write_merkle_tree_block(struct inode *inode, const void *buf,
-					u64 indpxt2, int log_blocksize)
+					u64 index, int log_blocksize)
 {
-	loff_t pos = pxt4_verity_metadata_pos(inode) + (indpxt2 << log_blocksize);
+	loff_t pos = pxt4_verity_metadata_pos(inode) + (index << log_blocksize);
 
 	return pagecache_write(inode, buf, 1 << log_blocksize, pos);
 }

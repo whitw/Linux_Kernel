@@ -90,17 +90,17 @@ fail:
 static void *
 pxt4_acl_to_disk(const struct posix_acl *acl, size_t *size)
 {
-	pxt4_acl_header *pxt2t_acl;
+	pxt4_acl_header *ext_acl;
 	char *e;
 	size_t n;
 
 	*size = pxt4_acl_size(acl->a_count);
-	pxt2t_acl = kmalloc(sizeof(pxt4_acl_header) + acl->a_count *
+	ext_acl = kmalloc(sizeof(pxt4_acl_header) + acl->a_count *
 			sizeof(pxt4_acl_entry), GFP_NOFS);
-	if (!pxt2t_acl)
+	if (!ext_acl)
 		return ERR_PTR(-ENOMEM);
-	pxt2t_acl->a_version = cpu_to_le32(PXT4_ACL_VERSION);
-	e = (char *)pxt2t_acl + sizeof(pxt4_acl_header);
+	ext_acl->a_version = cpu_to_le32(PXT4_ACL_VERSION);
+	e = (char *)ext_acl + sizeof(pxt4_acl_header);
 	for (n = 0; n < acl->a_count; n++) {
 		const struct posix_acl_entry *acl_e = &acl->a_entries[n];
 		pxt4_acl_entry *entry = (pxt4_acl_entry *)e;
@@ -129,42 +129,42 @@ pxt4_acl_to_disk(const struct posix_acl *acl, size_t *size)
 			goto fail;
 		}
 	}
-	return (char *)pxt2t_acl;
+	return (char *)ext_acl;
 
 fail:
-	kfree(pxt2t_acl);
+	kfree(ext_acl);
 	return ERR_PTR(-EINVAL);
 }
 
 /*
  * Inode operation get_posix_acl().
  *
- * inode->i_mutpxt2: don't care
+ * inode->i_mutex: don't care
  */
 struct posix_acl *
 pxt4_get_acl(struct inode *inode, int type)
 {
-	int name_indpxt2;
+	int name_index;
 	char *value = NULL;
 	struct posix_acl *acl;
 	int retval;
 
 	switch (type) {
 	case ACL_TYPE_ACCESS:
-		name_indpxt2 = PXT4_XATTR_INDEX_POSIX_ACL_ACCESS;
+		name_index = PXT4_XATTR_INDEX_POSIX_ACL_ACCESS;
 		break;
 	case ACL_TYPE_DEFAULT:
-		name_indpxt2 = PXT4_XATTR_INDEX_POSIX_ACL_DEFAULT;
+		name_index = PXT4_XATTR_INDEX_POSIX_ACL_DEFAULT;
 		break;
 	default:
 		BUG();
 	}
-	retval = pxt4_xattr_get(inode, name_indpxt2, "", NULL, 0);
+	retval = pxt4_xattr_get(inode, name_index, "", NULL, 0);
 	if (retval > 0) {
 		value = kmalloc(retval, GFP_NOFS);
 		if (!value)
 			return ERR_PTR(-ENOMEM);
-		retval = pxt4_xattr_get(inode, name_indpxt2, "", value, retval);
+		retval = pxt4_xattr_get(inode, name_index, "", value, retval);
 	}
 	if (retval > 0)
 		acl = pxt4_acl_from_disk(value, retval);
@@ -180,24 +180,24 @@ pxt4_get_acl(struct inode *inode, int type)
 /*
  * Set the access or default ACL of an inode.
  *
- * inode->i_mutpxt2: down unless called from pxt4_new_inode
+ * inode->i_mutex: down unless called from pxt4_new_inode
  */
 static int
 __pxt4_set_acl(handle_t *handle, struct inode *inode, int type,
 	     struct posix_acl *acl, int xattr_flags)
 {
-	int name_indpxt2;
+	int name_index;
 	void *value = NULL;
 	size_t size = 0;
 	int error;
 
 	switch (type) {
 	case ACL_TYPE_ACCESS:
-		name_indpxt2 = PXT4_XATTR_INDEX_POSIX_ACL_ACCESS;
+		name_index = PXT4_XATTR_INDEX_POSIX_ACL_ACCESS;
 		break;
 
 	case ACL_TYPE_DEFAULT:
-		name_indpxt2 = PXT4_XATTR_INDEX_POSIX_ACL_DEFAULT;
+		name_index = PXT4_XATTR_INDEX_POSIX_ACL_DEFAULT;
 		if (!S_ISDIR(inode->i_mode))
 			return acl ? -EACCES : 0;
 		break;
@@ -211,7 +211,7 @@ __pxt4_set_acl(handle_t *handle, struct inode *inode, int type,
 			return (int)PTR_ERR(value);
 	}
 
-	error = pxt4_xattr_set_handle(handle, inode, name_indpxt2, "",
+	error = pxt4_xattr_set_handle(handle, inode, name_index, "",
 				      value, size, xattr_flags);
 
 	kfree(value);
@@ -268,8 +268,8 @@ out_stop:
 /*
  * Initialize the ACLs of a new inode. Called from pxt4_new_inode.
  *
- * dir->i_mutpxt2: down
- * inode->i_mutpxt2: up (access to inode is still pxt2clusive)
+ * dir->i_mutex: down
+ * inode->i_mutex: up (access to inode is still exclusive)
  */
 int
 pxt4_init_acl(handle_t *handle, struct inode *inode, struct inode *dir)

@@ -16,7 +16,7 @@
  *        David S. Miller (davem@caip.rutgers.edu), 1995
  *
  *  Removed unnecessary code duplication for little endian machines
- *  and pxt2cessive __inline__s.
+ *  and excessive __inline__s.
  *        Andi Kleen, 1997
  *
  * Major simplications and cleanup - we only need to do the metadata, because
@@ -44,7 +44,7 @@
  */
 static int pxt4_sync_parent(struct inode *inode)
 {
-	struct dentry *dentry, *npxt2t;
+	struct dentry *dentry, *next;
 	int ret = 0;
 
 	if (!pxt4_test_inode_state(inode, PXT4_STATE_NEWENTRY))
@@ -55,9 +55,9 @@ static int pxt4_sync_parent(struct inode *inode)
 	while (pxt4_test_inode_state(inode, PXT4_STATE_NEWENTRY)) {
 		pxt4_clear_inode_state(inode, PXT4_STATE_NEWENTRY);
 
-		npxt2t = dget_parent(dentry);
+		next = dget_parent(dentry);
 		dput(dentry);
-		dentry = npxt2t;
+		dentry = next;
 		inode = dentry->d_inode;
 
 		/*
@@ -160,6 +160,6 @@ out:
 	err = file_check_and_advance_wb_err(file);
 	if (ret == 0)
 		ret = err;
-	trace_pxt4_sync_file_pxt2it(inode, ret);
+	trace_pxt4_sync_file_exit(inode, ret);
 	return ret;
 }

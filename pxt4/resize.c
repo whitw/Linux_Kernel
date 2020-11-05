@@ -204,12 +204,12 @@ static int verify_group_input(struct super_block *sb,
 }
 
 /*
- * pxt4_new_flpxt2_group_data is used by 64bit-resize interface to add a flpxt2
+ * pxt4_new_flex_group_data is used by 64bit-resize interface to add a flex
  * group each time.
  */
-struct pxt4_new_flpxt2_group_data {
+struct pxt4_new_flex_group_data {
 	struct pxt4_new_group_data *groups;	/* new_group_data for groups
-						   in the flpxt2 group */
+						   in the flex group */
 	__u16 *bg_flags;			/* block group flags of groups
 						   in @groups */
 	pxt4_group_t count;			/* number of groups in @groups
@@ -217,58 +217,58 @@ struct pxt4_new_flpxt2_group_data {
 };
 
 /*
- * alloc_flpxt2_gd() allocates a pxt4_new_flpxt2_group_data with size of
- * @flpxt2bg_size.
+ * alloc_flex_gd() allocates a pxt4_new_flex_group_data with size of
+ * @flexbg_size.
  *
  * Returns NULL on failure otherwise address of the allocated structure.
  */
-static struct pxt4_new_flpxt2_group_data *alloc_flpxt2_gd(unsigned long flpxt2bg_size)
+static struct pxt4_new_flex_group_data *alloc_flex_gd(unsigned long flexbg_size)
 {
-	struct pxt4_new_flpxt2_group_data *flpxt2_gd;
+	struct pxt4_new_flex_group_data *flex_gd;
 
-	flpxt2_gd = kmalloc(sizeof(*flpxt2_gd), GFP_NOFS);
-	if (flpxt2_gd == NULL)
+	flex_gd = kmalloc(sizeof(*flex_gd), GFP_NOFS);
+	if (flex_gd == NULL)
 		goto out3;
 
-	if (flpxt2bg_size >= UINT_MAX / sizeof(struct pxt4_new_group_data))
+	if (flexbg_size >= UINT_MAX / sizeof(struct pxt4_new_group_data))
 		goto out2;
-	flpxt2_gd->count = flpxt2bg_size;
+	flex_gd->count = flexbg_size;
 
-	flpxt2_gd->groups = kmalloc_array(flpxt2bg_size,
+	flex_gd->groups = kmalloc_array(flexbg_size,
 					sizeof(struct pxt4_new_group_data),
 					GFP_NOFS);
-	if (flpxt2_gd->groups == NULL)
+	if (flex_gd->groups == NULL)
 		goto out2;
 
-	flpxt2_gd->bg_flags = kmalloc_array(flpxt2bg_size, sizeof(__u16),
+	flex_gd->bg_flags = kmalloc_array(flexbg_size, sizeof(__u16),
 					  GFP_NOFS);
-	if (flpxt2_gd->bg_flags == NULL)
+	if (flex_gd->bg_flags == NULL)
 		goto out1;
 
-	return flpxt2_gd;
+	return flex_gd;
 
 out1:
-	kfree(flpxt2_gd->groups);
+	kfree(flex_gd->groups);
 out2:
-	kfree(flpxt2_gd);
+	kfree(flex_gd);
 out3:
 	return NULL;
 }
 
-static void free_flpxt2_gd(struct pxt4_new_flpxt2_group_data *flpxt2_gd)
+static void free_flex_gd(struct pxt4_new_flex_group_data *flex_gd)
 {
-	kfree(flpxt2_gd->bg_flags);
-	kfree(flpxt2_gd->groups);
-	kfree(flpxt2_gd);
+	kfree(flex_gd->bg_flags);
+	kfree(flex_gd->groups);
+	kfree(flex_gd);
 }
 
 /*
  * pxt4_alloc_group_tables() allocates block bitmaps, inode bitmaps
- * and inode tables for a flpxt2 group.
+ * and inode tables for a flex group.
  *
  * This function is used by 64bit-resize.  Note that this function allocates
- * group tables from the 1st group of groups contained by @flpxt2gd, which may
- * be a partial of a flpxt2 group.
+ * group tables from the 1st group of groups contained by @flexgd, which may
+ * be a partial of a flex group.
  *
  * @sb: super block of fs to which the groups belongs
  *
@@ -276,32 +276,32 @@ static void free_flpxt2_gd(struct pxt4_new_flpxt2_group_data *flpxt2_gd)
  * block group.
  */
 static int pxt4_alloc_group_tables(struct super_block *sb,
-				struct pxt4_new_flpxt2_group_data *flpxt2_gd,
-				int flpxt2bg_size)
+				struct pxt4_new_flex_group_data *flex_gd,
+				int flexbg_size)
 {
-	struct pxt4_new_group_data *group_data = flpxt2_gd->groups;
+	struct pxt4_new_group_data *group_data = flex_gd->groups;
 	pxt4_fsblk_t start_blk;
 	pxt4_fsblk_t last_blk;
 	pxt4_group_t src_group;
-	pxt4_group_t bb_indpxt2 = 0;
-	pxt4_group_t ib_indpxt2 = 0;
-	pxt4_group_t it_indpxt2 = 0;
+	pxt4_group_t bb_index = 0;
+	pxt4_group_t ib_index = 0;
+	pxt4_group_t it_index = 0;
 	pxt4_group_t group;
 	pxt4_group_t last_group;
 	unsigned overhead;
-	__u16 uninit_mask = (flpxt2bg_size > 1) ? ~PXT4_BG_BLOCK_UNINIT : ~0;
+	__u16 uninit_mask = (flexbg_size > 1) ? ~PXT4_BG_BLOCK_UNINIT : ~0;
 	int i;
 
-	BUG_ON(flpxt2_gd->count == 0 || group_data == NULL);
+	BUG_ON(flex_gd->count == 0 || group_data == NULL);
 
 	src_group = group_data[0].group;
-	last_group  = src_group + flpxt2_gd->count - 1;
+	last_group  = src_group + flex_gd->count - 1;
 
-	BUG_ON((flpxt2bg_size > 1) && ((src_group & ~(flpxt2bg_size - 1)) !=
-	       (last_group & ~(flpxt2bg_size - 1))));
-npxt2t_group:
+	BUG_ON((flexbg_size > 1) && ((src_group & ~(flexbg_size - 1)) !=
+	       (last_group & ~(flexbg_size - 1))));
+next_group:
 	group = group_data[0].group;
-	if (src_group >= group_data[0].group + flpxt2_gd->count)
+	if (src_group >= group_data[0].group + flex_gd->count)
 		return -ENOSPC;
 	start_blk = pxt4_group_first_block_no(sb, src_group);
 	last_blk = start_blk + group_data[src_group - group].blocks_count;
@@ -321,53 +321,53 @@ npxt2t_group:
 	}
 
 	/* Allocate block bitmaps */
-	for (; bb_indpxt2 < flpxt2_gd->count; bb_indpxt2++) {
+	for (; bb_index < flex_gd->count; bb_index++) {
 		if (start_blk >= last_blk)
-			goto npxt2t_group;
-		group_data[bb_indpxt2].block_bitmap = start_blk++;
+			goto next_group;
+		group_data[bb_index].block_bitmap = start_blk++;
 		group = pxt4_get_group_number(sb, start_blk - 1);
 		group -= group_data[0].group;
 		group_data[group].mdata_blocks++;
-		flpxt2_gd->bg_flags[group] &= uninit_mask;
+		flex_gd->bg_flags[group] &= uninit_mask;
 	}
 
 	/* Allocate inode bitmaps */
-	for (; ib_indpxt2 < flpxt2_gd->count; ib_indpxt2++) {
+	for (; ib_index < flex_gd->count; ib_index++) {
 		if (start_blk >= last_blk)
-			goto npxt2t_group;
-		group_data[ib_indpxt2].inode_bitmap = start_blk++;
+			goto next_group;
+		group_data[ib_index].inode_bitmap = start_blk++;
 		group = pxt4_get_group_number(sb, start_blk - 1);
 		group -= group_data[0].group;
 		group_data[group].mdata_blocks++;
-		flpxt2_gd->bg_flags[group] &= uninit_mask;
+		flex_gd->bg_flags[group] &= uninit_mask;
 	}
 
 	/* Allocate inode tables */
-	for (; it_indpxt2 < flpxt2_gd->count; it_indpxt2++) {
+	for (; it_index < flex_gd->count; it_index++) {
 		unsigned int itb = PXT4_SB(sb)->s_itb_per_group;
-		pxt4_fsblk_t npxt2t_group_start;
+		pxt4_fsblk_t next_group_start;
 
 		if (start_blk + itb > last_blk)
-			goto npxt2t_group;
-		group_data[it_indpxt2].inode_table = start_blk;
+			goto next_group;
+		group_data[it_index].inode_table = start_blk;
 		group = pxt4_get_group_number(sb, start_blk);
-		npxt2t_group_start = pxt4_group_first_block_no(sb, group + 1);
+		next_group_start = pxt4_group_first_block_no(sb, group + 1);
 		group -= group_data[0].group;
 
-		if (start_blk + itb > npxt2t_group_start) {
-			flpxt2_gd->bg_flags[group + 1] &= uninit_mask;
-			overhead = start_blk + itb - npxt2t_group_start;
+		if (start_blk + itb > next_group_start) {
+			flex_gd->bg_flags[group + 1] &= uninit_mask;
+			overhead = start_blk + itb - next_group_start;
 			group_data[group + 1].mdata_blocks += overhead;
 			itb -= overhead;
 		}
 
 		group_data[group].mdata_blocks += itb;
-		flpxt2_gd->bg_flags[group] &= uninit_mask;
+		flex_gd->bg_flags[group] &= uninit_mask;
 		start_blk += PXT4_SB(sb)->s_itb_per_group;
 	}
 
-	/* Update free clusters count to pxt2clude metadata blocks */
-	for (i = 0; i < flpxt2_gd->count; i++) {
+	/* Update free clusters count to exclude metadata blocks */
+	for (i = 0; i < flex_gd->count; i++) {
 		group_data[i].free_clusters_count -=
 				PXT4_NUM_B2C(PXT4_SB(sb),
 					     group_data[i].mdata_blocks);
@@ -377,11 +377,11 @@ npxt2t_group:
 		int i;
 		group = group_data[0].group;
 
-		printk(KERN_DEBUG "PXT4-fs: adding a flpxt2 group with "
-		       "%d groups, flpxt2bg size is %d:\n", flpxt2_gd->count,
-		       flpxt2bg_size);
+		printk(KERN_DEBUG "PXT4-fs: adding a flex group with "
+		       "%d groups, flexbg size is %d:\n", flex_gd->count,
+		       flexbg_size);
 
-		for (i = 0; i < flpxt2_gd->count; i++) {
+		for (i = 0; i < flex_gd->count; i++) {
 			pxt4_debug(
 			       "adding %s group %u: %u blocks (%d free, %d mdata blocks)\n",
 			       pxt4_bg_has_super(sb, group + i) ? "normal" :
@@ -416,18 +416,18 @@ static struct buffer_head *bclean(handle_t *handle, struct super_block *sb,
 }
 
 /*
- * If we have fewer than thresh credits, pxt2tend by PXT4_MAX_TRANS_DATA.
+ * If we have fewer than thresh credits, extend by PXT4_MAX_TRANS_DATA.
  * If that fails, restart the transaction & regain write access for the
  * buffer head which is used for block_bitmap modifications.
  */
-static int pxt2tend_or_restart_transaction(handle_t *handle, int thresh)
+static int extend_or_restart_transaction(handle_t *handle, int thresh)
 {
 	int err;
 
 	if (pxt4_handle_has_enough_credits(handle, thresh))
 		return 0;
 
-	err = pxt4_journal_pxt2tend(handle, PXT4_MAX_TRANS_DATA);
+	err = pxt4_journal_extend(handle, PXT4_MAX_TRANS_DATA);
 	if (err < 0)
 		return err;
 	if (err) {
@@ -440,16 +440,16 @@ static int pxt2tend_or_restart_transaction(handle_t *handle, int thresh)
 }
 
 /*
- * set_flpxt2bg_block_bitmap() mark clusters [@first_cluster, @last_cluster] used.
+ * set_flexbg_block_bitmap() mark clusters [@first_cluster, @last_cluster] used.
  *
  * Helper function for pxt4_setup_new_group_blocks() which set .
  *
  * @sb: super block
  * @handle: journal handle
- * @flpxt2_gd: flpxt2 group data
+ * @flex_gd: flex group data
  */
-static int set_flpxt2bg_block_bitmap(struct super_block *sb, handle_t *handle,
-			struct pxt4_new_flpxt2_group_data *flpxt2_gd,
+static int set_flexbg_block_bitmap(struct super_block *sb, handle_t *handle,
+			struct pxt4_new_flex_group_data *flex_gd,
 			pxt4_fsblk_t first_cluster, pxt4_fsblk_t last_cluster)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
@@ -467,22 +467,22 @@ static int set_flpxt2bg_block_bitmap(struct super_block *sb, handle_t *handle,
 
 		group = pxt4_get_group_number(sb, PXT4_C2B(sbi, first_cluster));
 		start = PXT4_B2C(sbi, pxt4_group_first_block_no(sb, group));
-		group -= flpxt2_gd->groups[0].group;
+		group -= flex_gd->groups[0].group;
 
 		count2 = PXT4_CLUSTERS_PER_GROUP(sb) - (first_cluster - start);
 		if (count2 > count)
 			count2 = count;
 
-		if (flpxt2_gd->bg_flags[group] & PXT4_BG_BLOCK_UNINIT) {
-			BUG_ON(flpxt2_gd->count > 1);
+		if (flex_gd->bg_flags[group] & PXT4_BG_BLOCK_UNINIT) {
+			BUG_ON(flex_gd->count > 1);
 			continue;
 		}
 
-		err = pxt2tend_or_restart_transaction(handle, 1);
+		err = extend_or_restart_transaction(handle, 1);
 		if (err)
 			return err;
 
-		bh = sb_getblk(sb, flpxt2_gd->groups[group].block_bitmap);
+		bh = sb_getblk(sb, flex_gd->groups[group].block_bitmap);
 		if (unlikely(!bh))
 			return -ENOMEM;
 
@@ -512,42 +512,42 @@ static int set_flpxt2bg_block_bitmap(struct super_block *sb, handle_t *handle,
  * ensure the recovery is correct in case of a failure just after resize.
  * If any part of this fails, we simply abort the resize.
  *
- * setup_new_flpxt2_group_blocks handles a flpxt2 group as follow:
+ * setup_new_flex_group_blocks handles a flex group as follow:
  *  1. copy super block and GDT, and initialize group tables if necessary.
  *     In this step, we only set bits in blocks bitmaps for blocks taken by
  *     super block and GDT.
  *  2. allocate group tables in block bitmaps, that is, set bits in block
  *     bitmap for blocks taken by group tables.
  */
-static int setup_new_flpxt2_group_blocks(struct super_block *sb,
-				struct pxt4_new_flpxt2_group_data *flpxt2_gd)
+static int setup_new_flex_group_blocks(struct super_block *sb,
+				struct pxt4_new_flex_group_data *flex_gd)
 {
 	int group_table_count[] = {1, 1, PXT4_SB(sb)->s_itb_per_group};
 	pxt4_fsblk_t start;
 	pxt4_fsblk_t block;
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	struct pxt4_super_block *es = sbi->s_es;
-	struct pxt4_new_group_data *group_data = flpxt2_gd->groups;
-	__u16 *bg_flags = flpxt2_gd->bg_flags;
+	struct pxt4_new_group_data *group_data = flex_gd->groups;
+	__u16 *bg_flags = flex_gd->bg_flags;
 	handle_t *handle;
 	pxt4_group_t group, count;
 	struct buffer_head *bh = NULL;
 	int reserved_gdb, i, j, err = 0, err2;
 	int meta_bg;
 
-	BUG_ON(!flpxt2_gd->count || !group_data ||
+	BUG_ON(!flex_gd->count || !group_data ||
 	       group_data[0].group != sbi->s_groups_count);
 
 	reserved_gdb = le16_to_cpu(es->s_reserved_gdt_blocks);
 	meta_bg = pxt4_has_feature_meta_bg(sb);
 
-	/* This transaction may be pxt2tended/restarted along the way */
+	/* This transaction may be extended/restarted along the way */
 	handle = pxt4_journal_start_sb(sb, PXT4_HT_RESIZE, PXT4_MAX_TRANS_DATA);
 	if (IS_ERR(handle))
 		return PTR_ERR(handle);
 
 	group = group_data[0].group;
-	for (i = 0; i < flpxt2_gd->count; i++, group++) {
+	for (i = 0; i < flex_gd->count; i++, group++) {
 		unsigned long gdblocks;
 		pxt4_grpblk_t overhead;
 
@@ -571,7 +571,7 @@ static int setup_new_flpxt2_group_blocks(struct super_block *sb,
 			struct buffer_head *gdb;
 
 			pxt4_debug("update backup group %#04llx\n", block);
-			err = pxt2tend_or_restart_transaction(handle, 1);
+			err = extend_or_restart_transaction(handle, 1);
 			if (err)
 				goto out;
 
@@ -629,7 +629,7 @@ handle_bb:
 
 		/* Initialize block bitmap of the @group */
 		block = group_data[i].block_bitmap;
-		err = pxt2tend_or_restart_transaction(handle, 1);
+		err = extend_or_restart_transaction(handle, 1);
 		if (err)
 			goto out;
 
@@ -658,7 +658,7 @@ handle_ib:
 
 		/* Initialize inode bitmap of the @group */
 		block = group_data[i].inode_bitmap;
-		err = pxt2tend_or_restart_transaction(handle, 1);
+		err = extend_or_restart_transaction(handle, 1);
 		if (err)
 			goto out;
 		/* Mark unused entries in inode bitmap used */
@@ -681,14 +681,14 @@ handle_ib:
 		count = group_table_count[j];
 		start = (&group_data[0].block_bitmap)[j];
 		block = start;
-		for (i = 1; i < flpxt2_gd->count; i++) {
+		for (i = 1; i < flex_gd->count; i++) {
 			block += group_table_count[j];
 			if (block == (&group_data[i].block_bitmap)[j]) {
 				count += group_table_count[j];
 				continue;
 			}
-			err = set_flpxt2bg_block_bitmap(sb, handle,
-						      flpxt2_gd,
+			err = set_flexbg_block_bitmap(sb, handle,
+						      flex_gd,
 						      PXT4_B2C(sbi, start),
 						      PXT4_B2C(sbi,
 							       start + count
@@ -701,8 +701,8 @@ handle_ib:
 		}
 
 		if (count) {
-			err = set_flpxt2bg_block_bitmap(sb, handle,
-						      flpxt2_gd,
+			err = set_flexbg_block_bitmap(sb, handle,
+						      flex_gd,
 						      PXT4_B2C(sbi, start),
 						      PXT4_B2C(sbi,
 							       start + count
@@ -1016,7 +1016,7 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 	if (IS_ERR(dind)) {
 		err = PTR_ERR(dind);
 		dind = NULL;
-		goto pxt2it_free;
+		goto exit_free;
 	}
 
 	blk = PXT4_SB(sb)->s_sbh->b_blocknr + 1 + PXT4_SB(sb)->s_gdb_count;
@@ -1032,19 +1032,19 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 				     blk,
 				     (long)(data - (__le32 *)dind->b_data));
 			err = -EINVAL;
-			goto pxt2it_bh;
+			goto exit_bh;
 		}
 		primary[res] = pxt4_sb_bread(sb, blk, 0);
 		if (IS_ERR(primary[res])) {
 			err = PTR_ERR(primary[res]);
 			primary[res] = NULL;
-			goto pxt2it_bh;
+			goto exit_bh;
 		}
 		gdbackups = verify_reserved_gdb(sb, group, primary[res]);
 		if (gdbackups < 0) {
 			brelse(primary[res]);
 			err = gdbackups;
-			goto pxt2it_bh;
+			goto exit_bh;
 		}
 		if (++data >= end)
 			data = (__le32 *)dind->b_data;
@@ -1053,11 +1053,11 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 	for (i = 0; i < reserved_gdb; i++) {
 		BUFFER_TRACE(primary[i], "get_write_access");
 		if ((err = pxt4_journal_get_write_access(handle, primary[i])))
-			goto pxt2it_bh;
+			goto exit_bh;
 	}
 
 	if ((err = pxt4_reserve_inode_write(handle, inode, &iloc)))
-		goto pxt2it_bh;
+		goto exit_bh;
 
 	/*
 	 * Finally we can add each of the reserved backup GDT blocks from
@@ -1079,12 +1079,12 @@ static int reserve_backup_gdb(handle_t *handle, struct inode *inode,
 	inode->i_blocks += reserved_gdb * sb->s_blocksize >> (9 - cluster_bits);
 	pxt4_mark_iloc_dirty(handle, inode, &iloc);
 
-pxt2it_bh:
+exit_bh:
 	while (--res >= 0)
 		brelse(primary[res]);
 	brelse(dind);
 
-pxt2it_free:
+exit_free:
 	kfree(primary);
 
 	return err;
@@ -1124,7 +1124,7 @@ static void update_backups(struct super_block *sb, sector_t blk_off, char *data,
 	if (IS_ERR(handle)) {
 		group = 1;
 		err = PTR_ERR(handle);
-		goto pxt2it_err;
+		goto exit_err;
 	}
 
 	if (meta_bg == 0) {
@@ -1142,7 +1142,7 @@ static void update_backups(struct super_block *sb, sector_t blk_off, char *data,
 		/* Out of journal space, and can't get more - abort - so sad */
 		if (pxt4_handle_valid(handle) &&
 		    handle->h_buffer_credits == 0 &&
-		    pxt4_journal_pxt2tend(handle, PXT4_MAX_TRANS_DATA) &&
+		    pxt4_journal_extend(handle, PXT4_MAX_TRANS_DATA) &&
 		    (err = pxt4_journal_restart(handle, PXT4_MAX_TRANS_DATA)))
 			break;
 
@@ -1194,12 +1194,12 @@ static void update_backups(struct super_block *sb, sector_t blk_off, char *data,
 	 * However, if we got here we have a journal problem too, so we
 	 * can't really start a transaction to mark the superblock.
 	 * Chicken out and just set the flag on the hope it will be written
-	 * to disk, and if not - we will simply wait until npxt2t fsck.
+	 * to disk, and if not - we will simply wait until next fsck.
 	 */
-pxt2it_err:
+exit_err:
 	if (err) {
 		pxt4_warning(sb, "can't update backup for group %u (err %d), "
-			     "forcing fsck on npxt2t reboot", group, err);
+			     "forcing fsck on next reboot", group, err);
 		sbi->s_mount_state &= ~PXT4_VALID_FS;
 		sbi->s_es->s_state &= cpu_to_le16(~PXT4_VALID_FS);
 		mark_buffer_dirty(sbi->s_sbh);
@@ -1237,7 +1237,7 @@ static int pxt4_add_new_descs(handle_t *handle, struct super_block *sb,
 		/*
 		 * We will only either add reserved group blocks to a backup group
 		 * or remove reserved blocks for the first group in a new group block.
-		 * Doing both would be mean more complpxt2 code, and sane people don't
+		 * Doing both would be mean more complex code, and sane people don't
 		 * use non-sparse filesystems anymore.  This is already checked above.
 		 */
 		if (gdb_off) {
@@ -1301,21 +1301,21 @@ static int pxt4_set_bitmap_checksums(struct super_block *sb,
 }
 
 /*
- * pxt4_setup_new_descs() will set up the group descriptor descriptors of a flpxt2 bg
+ * pxt4_setup_new_descs() will set up the group descriptor descriptors of a flex bg
  */
 static int pxt4_setup_new_descs(handle_t *handle, struct super_block *sb,
-				struct pxt4_new_flpxt2_group_data *flpxt2_gd)
+				struct pxt4_new_flex_group_data *flex_gd)
 {
-	struct pxt4_new_group_data	*group_data = flpxt2_gd->groups;
+	struct pxt4_new_group_data	*group_data = flex_gd->groups;
 	struct pxt4_group_desc		*gdp;
 	struct pxt4_sb_info		*sbi = PXT4_SB(sb);
 	struct buffer_head		*gdb_bh;
 	pxt4_group_t			group;
-	__u16				*bg_flags = flpxt2_gd->bg_flags;
+	__u16				*bg_flags = flex_gd->bg_flags;
 	int				i, gdb_off, gdb_num, err = 0;
 
 
-	for (i = 0; i < flpxt2_gd->count; i++, group_data++, bg_flags++) {
+	for (i = 0; i < flex_gd->count; i++, group_data++, bg_flags++) {
 		group = group_data->group;
 
 		gdb_off = group % PXT4_DESC_PER_BLOCK(sb);
@@ -1370,22 +1370,22 @@ static int pxt4_setup_new_descs(handle_t *handle, struct super_block *sb,
  * groups can be seen by the filesystem.
  *
  * @sb: super block
- * @flpxt2_gd: new added groups
+ * @flex_gd: new added groups
  */
 static void pxt4_update_super(struct super_block *sb,
-			     struct pxt4_new_flpxt2_group_data *flpxt2_gd)
+			     struct pxt4_new_flex_group_data *flex_gd)
 {
 	pxt4_fsblk_t blocks_count = 0;
 	pxt4_fsblk_t free_blocks = 0;
 	pxt4_fsblk_t reserved_blocks = 0;
-	struct pxt4_new_group_data *group_data = flpxt2_gd->groups;
+	struct pxt4_new_group_data *group_data = flex_gd->groups;
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	struct pxt4_super_block *es = sbi->s_es;
 	int i;
 
-	BUG_ON(flpxt2_gd->count == 0 || group_data == NULL);
+	BUG_ON(flex_gd->count == 0 || group_data == NULL);
 	/*
-	 * Make the new blocks and inodes valid npxt2t.  We do this before
+	 * Make the new blocks and inodes valid next.  We do this before
 	 * increasing the group count so that once the group is enabled,
 	 * all of its blocks and inodes are already valid.
 	 *
@@ -1394,7 +1394,7 @@ static void pxt4_update_super(struct super_block *sb,
 	 * blocks/inodes before the group is live won't actually let us
 	 * allocate the new space yet.
 	 */
-	for (i = 0; i < flpxt2_gd->count; i++) {
+	for (i = 0; i < flex_gd->count; i++) {
 		blocks_count += group_data[i].blocks_count;
 		free_blocks += PXT4_C2B(sbi, group_data[i].free_clusters_count);
 	}
@@ -1407,9 +1407,9 @@ static void pxt4_update_super(struct super_block *sb,
 	pxt4_blocks_count_set(es, pxt4_blocks_count(es) + blocks_count);
 	pxt4_free_blocks_count_set(es, pxt4_free_blocks_count(es) + free_blocks);
 	le32_add_cpu(&es->s_inodes_count, PXT4_INODES_PER_GROUP(sb) *
-		     flpxt2_gd->count);
+		     flex_gd->count);
 	le32_add_cpu(&es->s_free_inodes_count, PXT4_INODES_PER_GROUP(sb) *
-		     flpxt2_gd->count);
+		     flex_gd->count);
 
 	pxt4_debug("free blocks count %llu", pxt4_free_blocks_count(es));
 	/*
@@ -1433,7 +1433,7 @@ static void pxt4_update_super(struct super_block *sb,
 	smp_wmb();
 
 	/* Update the global fs size fields */
-	sbi->s_groups_count += flpxt2_gd->count;
+	sbi->s_groups_count += flex_gd->count;
 	sbi->s_blockfile_groups = min_t(pxt4_group_t, sbi->s_groups_count,
 			(PXT4_MAX_BLOCK_FILE_PHYS / PXT4_BLOCKS_PER_GROUP(sb)));
 
@@ -1446,19 +1446,19 @@ static void pxt4_update_super(struct super_block *sb,
 	percpu_counter_add(&sbi->s_freeclusters_counter,
 			   PXT4_NUM_B2C(sbi, free_blocks));
 	percpu_counter_add(&sbi->s_freeinodes_counter,
-			   PXT4_INODES_PER_GROUP(sb) * flpxt2_gd->count);
+			   PXT4_INODES_PER_GROUP(sb) * flex_gd->count);
 
 	pxt4_debug("free blocks count %llu",
 		   percpu_counter_read(&sbi->s_freeclusters_counter));
-	if (pxt4_has_feature_flpxt2_bg(sb) && sbi->s_log_groups_per_flpxt2) {
-		pxt4_group_t flpxt2_group;
-		struct flpxt2_groups *fg;
+	if (pxt4_has_feature_flex_bg(sb) && sbi->s_log_groups_per_flex) {
+		pxt4_group_t flex_group;
+		struct flex_groups *fg;
 
-		flpxt2_group = pxt4_flpxt2_group(sbi, group_data[0].group);
-		fg = sbi_array_rcu_deref(sbi, s_flpxt2_groups, flpxt2_group);
+		flex_group = pxt4_flex_group(sbi, group_data[0].group);
+		fg = sbi_array_rcu_deref(sbi, s_flex_groups, flex_group);
 		atomic64_add(PXT4_NUM_B2C(sbi, free_blocks),
 			     &fg->free_clusters);
-		atomic_add(PXT4_INODES_PER_GROUP(sb) * flpxt2_gd->count,
+		atomic_add(PXT4_INODES_PER_GROUP(sb) * flex_gd->count,
 			   &fg->free_inodes);
 	}
 
@@ -1469,17 +1469,17 @@ static void pxt4_update_super(struct super_block *sb,
 
 	if (test_opt(sb, DEBUG))
 		printk(KERN_DEBUG "PXT4-fs: added group %u:"
-		       "%llu blocks(%llu free %llu reserved)\n", flpxt2_gd->count,
+		       "%llu blocks(%llu free %llu reserved)\n", flex_gd->count,
 		       blocks_count, free_blocks, reserved_blocks);
 }
 
-/* Add a flpxt2 group to an fs. Ensure we handle all possible error conditions
+/* Add a flex group to an fs. Ensure we handle all possible error conditions
  * _before_ we start modifying the filesystem, because we cannot abort the
  * transaction and not have it write the data to disk.
  */
-static int pxt4_flpxt2_group_add(struct super_block *sb,
+static int pxt4_flex_group_add(struct super_block *sb,
 			       struct inode *resize_inode,
-			       struct pxt4_new_flpxt2_group_data *flpxt2_gd)
+			       struct pxt4_new_flex_group_data *flex_gd)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	struct pxt4_super_block *es = sbi->s_es;
@@ -1490,16 +1490,16 @@ static int pxt4_flpxt2_group_add(struct super_block *sb,
 	unsigned reserved_gdb;
 	int err = 0, err2 = 0, credit;
 
-	BUG_ON(!flpxt2_gd->count || !flpxt2_gd->groups || !flpxt2_gd->bg_flags);
+	BUG_ON(!flex_gd->count || !flex_gd->groups || !flex_gd->bg_flags);
 
 	reserved_gdb = le16_to_cpu(es->s_reserved_gdt_blocks);
 	o_blocks_count = pxt4_blocks_count(es);
 	pxt4_get_group_no_and_offset(sb, o_blocks_count, &group, &last);
 	BUG_ON(last);
 
-	err = setup_new_flpxt2_group_blocks(sb, flpxt2_gd);
+	err = setup_new_flex_group_blocks(sb, flex_gd);
 	if (err)
-		goto pxt2it;
+		goto exit;
 	/*
 	 * We will always be modifying at least the superblock and  GDT
 	 * blocks.  If we are adding a group past the last current GDT block,
@@ -1509,42 +1509,42 @@ static int pxt4_flpxt2_group_add(struct super_block *sb,
 	 */
 	credit = 3;	/* sb, resize inode, resize inode dindirect */
 	/* GDT blocks */
-	credit += 1 + DIV_ROUND_UP(flpxt2_gd->count, PXT4_DESC_PER_BLOCK(sb));
+	credit += 1 + DIV_ROUND_UP(flex_gd->count, PXT4_DESC_PER_BLOCK(sb));
 	credit += reserved_gdb;	/* Reserved GDT dindirect blocks */
 	handle = pxt4_journal_start_sb(sb, PXT4_HT_RESIZE, credit);
 	if (IS_ERR(handle)) {
 		err = PTR_ERR(handle);
-		goto pxt2it;
+		goto exit;
 	}
 
 	BUFFER_TRACE(sbi->s_sbh, "get_write_access");
 	err = pxt4_journal_get_write_access(handle, sbi->s_sbh);
 	if (err)
-		goto pxt2it_journal;
+		goto exit_journal;
 
-	group = flpxt2_gd->groups[0].group;
+	group = flex_gd->groups[0].group;
 	BUG_ON(group != sbi->s_groups_count);
 	err = pxt4_add_new_descs(handle, sb, group,
-				resize_inode, flpxt2_gd->count);
+				resize_inode, flex_gd->count);
 	if (err)
-		goto pxt2it_journal;
+		goto exit_journal;
 
-	err = pxt4_setup_new_descs(handle, sb, flpxt2_gd);
+	err = pxt4_setup_new_descs(handle, sb, flex_gd);
 	if (err)
-		goto pxt2it_journal;
+		goto exit_journal;
 
-	pxt4_update_super(sb, flpxt2_gd);
+	pxt4_update_super(sb, flex_gd);
 
 	err = pxt4_handle_dirty_super(handle, sb);
 
-pxt2it_journal:
+exit_journal:
 	err2 = pxt4_journal_stop(handle);
 	if (!err)
 		err = err2;
 
 	if (!err) {
 		int gdb_num = group / PXT4_DESC_PER_BLOCK(sb);
-		int gdb_num_end = ((group + flpxt2_gd->count - 1) /
+		int gdb_num_end = ((group + flex_gd->count - 1) /
 				   PXT4_DESC_PER_BLOCK(sb));
 		int meta_bg = pxt4_has_feature_meta_bg(sb);
 		sector_t old_gdb = 0;
@@ -1563,18 +1563,18 @@ pxt2it_journal:
 			old_gdb = gdb_bh->b_blocknr;
 		}
 	}
-pxt2it:
+exit:
 	return err;
 }
 
-static int pxt4_setup_npxt2t_flpxt2_gd(struct super_block *sb,
-				    struct pxt4_new_flpxt2_group_data *flpxt2_gd,
+static int pxt4_setup_next_flex_gd(struct super_block *sb,
+				    struct pxt4_new_flex_group_data *flex_gd,
 				    pxt4_fsblk_t n_blocks_count,
-				    unsigned long flpxt2bg_size)
+				    unsigned long flexbg_size)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	struct pxt4_super_block *es = sbi->s_es;
-	struct pxt4_new_group_data *group_data = flpxt2_gd->groups;
+	struct pxt4_new_group_data *group_data = flex_gd->groups;
 	pxt4_fsblk_t o_blocks_count;
 	pxt4_group_t n_group;
 	pxt4_group_t group;
@@ -1594,13 +1594,13 @@ static int pxt4_setup_npxt2t_flpxt2_gd(struct super_block *sb,
 	BUG_ON(last);
 	pxt4_get_group_no_and_offset(sb, n_blocks_count - 1, &n_group, &last);
 
-	last_group = group | (flpxt2bg_size - 1);
+	last_group = group | (flexbg_size - 1);
 	if (last_group > n_group)
 		last_group = n_group;
 
-	flpxt2_gd->count = last_group - group + 1;
+	flex_gd->count = last_group - group + 1;
 
-	for (i = 0; i < flpxt2_gd->count; i++) {
+	for (i = 0; i < flex_gd->count; i++) {
 		int overhead;
 
 		group_data[i].group = group + i;
@@ -1609,17 +1609,17 @@ static int pxt4_setup_npxt2t_flpxt2_gd(struct super_block *sb,
 		group_data[i].mdata_blocks = overhead;
 		group_data[i].free_clusters_count = PXT4_CLUSTERS_PER_GROUP(sb);
 		if (pxt4_has_group_desc_csum(sb)) {
-			flpxt2_gd->bg_flags[i] = PXT4_BG_BLOCK_UNINIT |
+			flex_gd->bg_flags[i] = PXT4_BG_BLOCK_UNINIT |
 					       PXT4_BG_INODE_UNINIT;
 			if (!test_opt(sb, INIT_INODE_TABLE))
-				flpxt2_gd->bg_flags[i] |= PXT4_BG_INODE_ZEROED;
+				flex_gd->bg_flags[i] |= PXT4_BG_INODE_ZEROED;
 		} else
-			flpxt2_gd->bg_flags[i] = PXT4_BG_INODE_ZEROED;
+			flex_gd->bg_flags[i] = PXT4_BG_INODE_ZEROED;
 	}
 
 	if (last_group == n_group && pxt4_has_group_desc_csum(sb))
 		/* We need to initialize block bitmap of last group. */
-		flpxt2_gd->bg_flags[i - 1] &= ~PXT4_BG_BLOCK_UNINIT;
+		flex_gd->bg_flags[i - 1] &= ~PXT4_BG_BLOCK_UNINIT;
 
 	if ((last_group == n_group) && (last != clusters_per_group - 1)) {
 		group_data[i - 1].blocks_count = PXT4_C2B(sbi, last + 1);
@@ -1630,7 +1630,7 @@ static int pxt4_setup_npxt2t_flpxt2_gd(struct super_block *sb,
 	return 1;
 }
 
-/* Add group descriptor data to an pxt2isting or new group descriptor block.
+/* Add group descriptor data to an existing or new group descriptor block.
  * Ensure we handle all possible error conditions _before_ we start modifying
  * the filesystem, because we cannot abort the transaction and not have it
  * write the data to disk.
@@ -1645,7 +1645,7 @@ static int pxt4_setup_npxt2t_flpxt2_gd(struct super_block *sb,
  */
 int pxt4_group_add(struct super_block *sb, struct pxt4_new_group_data *input)
 {
-	struct pxt4_new_flpxt2_group_data flpxt2_gd;
+	struct pxt4_new_flex_group_data flex_gd;
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	struct pxt4_super_block *es = sbi->s_es;
 	int reserved_gdb = pxt4_bg_has_super(sb, input->group) ?
@@ -1693,7 +1693,7 @@ int pxt4_group_add(struct super_block *sb, struct pxt4_new_group_data *input)
 	if (err)
 		goto out;
 
-	err = pxt4_alloc_flpxt2_bg_array(sb, input->group + 1);
+	err = pxt4_alloc_flex_bg_array(sb, input->group + 1);
 	if (err)
 		goto out;
 
@@ -1701,19 +1701,19 @@ int pxt4_group_add(struct super_block *sb, struct pxt4_new_group_data *input)
 	if (err)
 		goto out;
 
-	flpxt2_gd.count = 1;
-	flpxt2_gd.groups = input;
-	flpxt2_gd.bg_flags = &bg_flags;
-	err = pxt4_flpxt2_group_add(sb, inode, &flpxt2_gd);
+	flex_gd.count = 1;
+	flex_gd.groups = input;
+	flex_gd.bg_flags = &bg_flags;
+	err = pxt4_flex_group_add(sb, inode, &flex_gd);
 out:
 	iput(inode);
 	return err;
 } /* pxt4_group_add */
 
 /*
- * pxt2tend a group without checking assuming that checking has been done.
+ * extend a group without checking assuming that checking has been done.
  */
-static int pxt4_group_pxt2tend_no_check(struct super_block *sb,
+static int pxt4_group_extend_no_check(struct super_block *sb,
 				      pxt4_fsblk_t o_blocks_count, pxt4_grpblk_t add)
 {
 	struct pxt4_super_block *es = PXT4_SB(sb)->s_es;
@@ -1755,7 +1755,7 @@ errout:
 
 	if (!err) {
 		if (test_opt(sb, DEBUG))
-			printk(KERN_DEBUG "PXT4-fs: pxt2tended group to %llu "
+			printk(KERN_DEBUG "PXT4-fs: extended group to %llu "
 			       "blocks\n", pxt4_blocks_count(es));
 		update_backups(sb, PXT4_SB(sb)->s_sbh->b_blocknr,
 			       (char *)es, sizeof(struct pxt4_super_block), 0);
@@ -1765,15 +1765,15 @@ errout:
 
 /*
  * Extend the filesystem to the new number of blocks specified.  This entry
- * point is only used to pxt2tend the current filesystem to the end of the last
- * pxt2isting group.  It can be accessed via ioctl, or by "remount,resize=<size>"
+ * point is only used to extend the current filesystem to the end of the last
+ * existing group.  It can be accessed via ioctl, or by "remount,resize=<size>"
  * for emergencies (because it has no dependencies on reserved blocks).
  *
  * If we _really_ wanted, we could use default values to call pxt4_group_add()
  * allow the "remount" trick to work for arbitrary resizing, assuming enough
  * GDT blocks are reserved to grow to the desired size.
  */
-int pxt4_group_pxt2tend(struct super_block *sb, struct pxt4_super_block *es,
+int pxt4_group_extend(struct super_block *sb, struct pxt4_super_block *es,
 		      pxt4_fsblk_t n_blocks_count)
 {
 	pxt4_fsblk_t o_blocks_count;
@@ -1787,7 +1787,7 @@ int pxt4_group_pxt2tend(struct super_block *sb, struct pxt4_super_block *es,
 
 	if (test_opt(sb, DEBUG))
 		pxt4_msg(sb, KERN_DEBUG,
-			 "pxt2tending last group from %llu to %llu blocks",
+			 "extending last group from %llu to %llu blocks",
 			 o_blocks_count, n_blocks_count);
 
 	if (n_blocks_count == 0 || n_blocks_count == o_blocks_count)
@@ -1809,7 +1809,7 @@ int pxt4_group_pxt2tend(struct super_block *sb, struct pxt4_super_block *es,
 	pxt4_get_group_no_and_offset(sb, o_blocks_count, &group, &last);
 
 	if (last == 0) {
-		pxt4_warning(sb, "need to use pxt2t2online to resize further");
+		pxt4_warning(sb, "need to use pxt2online to resize further");
 		return -EPERM;
 	}
 
@@ -1835,9 +1835,9 @@ int pxt4_group_pxt2tend(struct super_block *sb, struct pxt4_super_block *es,
 	}
 	brelse(bh);
 
-	err = pxt4_group_pxt2tend_no_check(sb, o_blocks_count, add);
+	err = pxt4_group_extend_no_check(sb, o_blocks_count, add);
 	return err;
-} /* pxt4_group_pxt2tend */
+} /* pxt4_group_extend */
 
 
 static int num_desc_blocks(struct super_block *sb, pxt4_group_t groups)
@@ -1863,7 +1863,7 @@ static int pxt4_convert_meta_bg(struct super_block *sb, struct inode *inode)
 	pxt4_msg(sb, KERN_INFO, "Converting file system to meta_bg");
 	if (inode) {
 		if (es->s_reserved_gdt_blocks) {
-			pxt4_error(sb, "Unpxt2pected non-zero "
+			pxt4_error(sb, "Unexpected non-zero "
 				   "s_reserved_gdt_blocks");
 			return -EPERM;
 		}
@@ -1937,7 +1937,7 @@ invalid_resize_inode:
  */
 int pxt4_resize_fs(struct super_block *sb, pxt4_fsblk_t n_blocks_count)
 {
-	struct pxt4_new_flpxt2_group_data *flpxt2_gd = NULL;
+	struct pxt4_new_flex_group_data *flex_gd = NULL;
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	struct pxt4_super_block *es = sbi->s_es;
 	struct buffer_head *bh;
@@ -1950,7 +1950,7 @@ int pxt4_resize_fs(struct super_block *sb, pxt4_fsblk_t n_blocks_count)
 	pxt4_fsblk_t o_blocks_count;
 	pxt4_fsblk_t n_blocks_count_retry = 0;
 	unsigned long last_update_time = 0;
-	int err = 0, flpxt2bg_size = 1 << sbi->s_log_groups_per_flpxt2;
+	int err = 0, flexbg_size = 1 << sbi->s_log_groups_per_flex;
 	int meta_bg;
 
 	/* See if the device is actually as big as what was requested */
@@ -2051,13 +2051,13 @@ retry:
 		goto retry;
 	}
 
-	/* pxt2tend the last group */
+	/* extend the last group */
 	if (n_group == o_group)
 		add = n_blocks_count - o_blocks_count;
 	else
 		add = PXT4_C2B(sbi, PXT4_CLUSTERS_PER_GROUP(sb) - (offset + 1));
 	if (add > 0) {
-		err = pxt4_group_pxt2tend_no_check(sb, o_blocks_count, add);
+		err = pxt4_group_extend_no_check(sb, o_blocks_count, add);
 		if (err)
 			goto out;
 	}
@@ -2065,7 +2065,7 @@ retry:
 	if (pxt4_blocks_count(es) == n_blocks_count)
 		goto out;
 
-	err = pxt4_alloc_flpxt2_bg_array(sb, n_group + 1);
+	err = pxt4_alloc_flex_bg_array(sb, n_group + 1);
 	if (err)
 		goto out;
 
@@ -2073,17 +2073,17 @@ retry:
 	if (err)
 		goto out;
 
-	flpxt2_gd = alloc_flpxt2_gd(flpxt2bg_size);
-	if (flpxt2_gd == NULL) {
+	flex_gd = alloc_flex_gd(flexbg_size);
+	if (flex_gd == NULL) {
 		err = -ENOMEM;
 		goto out;
 	}
 
-	/* Add flpxt2 groups. Note that a regular group is a
-	 * flpxt2 group with 1 group.
+	/* Add flex groups. Note that a regular group is a
+	 * flex group with 1 group.
 	 */
-	while (pxt4_setup_npxt2t_flpxt2_gd(sb, flpxt2_gd, n_blocks_count,
-					      flpxt2bg_size)) {
+	while (pxt4_setup_next_flex_gd(sb, flex_gd, n_blocks_count,
+					      flexbg_size)) {
 		if (jiffies - last_update_time > HZ * 10) {
 			if (last_update_time)
 				pxt4_msg(sb, KERN_INFO,
@@ -2091,9 +2091,9 @@ retry:
 					 pxt4_blocks_count(es));
 			last_update_time = jiffies;
 		}
-		if (pxt4_alloc_group_tables(sb, flpxt2_gd, flpxt2bg_size) != 0)
+		if (pxt4_alloc_group_tables(sb, flex_gd, flexbg_size) != 0)
 			break;
-		err = pxt4_flpxt2_group_add(sb, resize_inode, flpxt2_gd);
+		err = pxt4_flex_group_add(sb, resize_inode, flex_gd);
 		if (unlikely(err))
 			break;
 	}
@@ -2101,8 +2101,8 @@ retry:
 	if (!err && n_blocks_count_retry) {
 		n_blocks_count = n_blocks_count_retry;
 		n_blocks_count_retry = 0;
-		free_flpxt2_gd(flpxt2_gd);
-		flpxt2_gd = NULL;
+		free_flex_gd(flex_gd);
+		flex_gd = NULL;
 		if (resize_inode) {
 			iput(resize_inode);
 			resize_inode = NULL;
@@ -2111,8 +2111,8 @@ retry:
 	}
 
 out:
-	if (flpxt2_gd)
-		free_flpxt2_gd(flpxt2_gd);
+	if (flex_gd)
+		free_flex_gd(flex_gd);
 	if (resize_inode != NULL)
 		iput(resize_inode);
 	if (err)

@@ -29,7 +29,7 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/pxt2port.h>
+#include <linux/export.h>
 #include <linux/mm.h>
 #include <linux/kdev_t.h>
 #include <linux/gfp.h>
@@ -162,14 +162,14 @@ static bool bio_post_read_required(struct bio *bio)
 /*
  * I/O completion handler for multipage BIOs.
  *
- * The mpage code never puts partial pages into a BIO (pxt2cept for end-of-file).
+ * The mpage code never puts partial pages into a BIO (except for end-of-file).
  * If a page does not map to a contiguous run of blocks then it simply falls
  * back to block_read_full_page().
  *
  * Why is this?  If a page's completion depends on a number of different BIOs
  * which can complete in any order (or at the same time) then determining the
  * status of that page is hard.  See end_buffer_async_read() for the details.
- * There is no point in duplicating all that complpxt2ity.
+ * There is no point in duplicating all that complexity.
  */
 static void mpage_end_io(struct bio *bio)
 {
@@ -257,15 +257,15 @@ int pxt4_mpage_readpages(struct address_space *mapping,
 
 			prefetchw(&page->flags);
 			list_del(&page->lru);
-			if (add_to_page_cache_lru(page, mapping, page->indpxt2,
+			if (add_to_page_cache_lru(page, mapping, page->index,
 				  readahead_gfp_mask(mapping)))
-				goto npxt2t_page;
+				goto next_page;
 		}
 
 		if (page_has_buffers(page))
 			goto confused;
 
-		block_in_file = (sector_t)page->indpxt2 << (PAGE_SHIFT - blkbits);
+		block_in_file = (sector_t)page->index << (PAGE_SHIFT - blkbits);
 		last_block = block_in_file + nr_pages * blocks_per_page;
 		last_block_in_file = (pxt4_readpage_limit(inode) +
 				      blocksize - 1) >> blkbits;
@@ -312,7 +312,7 @@ int pxt4_mpage_readpages(struct address_space *mapping,
 					zero_user_segment(page, 0,
 							  PAGE_SIZE);
 					unlock_page(page);
-					goto npxt2t_page;
+					goto next_page;
 				}
 			}
 			if ((map.m_flags & PXT4_MAP_MAPPED) == 0) {
@@ -345,12 +345,12 @@ int pxt4_mpage_readpages(struct address_space *mapping,
 			zero_user_segment(page, first_hole << blkbits,
 					  PAGE_SIZE);
 			if (first_hole == 0) {
-				if (pxt4_need_verity(inode, page->indpxt2) &&
+				if (pxt4_need_verity(inode, page->index) &&
 				    !fsverity_verify_page(page))
 					goto set_error_page;
 				SetPageUptodate(page);
 				unlock_page(page);
-				goto npxt2t_page;
+				goto next_page;
 			}
 		} else if (fully_mapped) {
 			SetPageMappedToDisk(page);
@@ -377,7 +377,7 @@ int pxt4_mpage_readpages(struct address_space *mapping,
 				min_t(int, nr_pages, BIO_MAX_PAGES));
 			if (!bio)
 				goto set_error_page;
-			ctx = get_bio_post_read_ctx(inode, bio, page->indpxt2);
+			ctx = get_bio_post_read_ctx(inode, bio, page->index);
 			if (IS_ERR(ctx)) {
 				bio_put(bio);
 				bio = NULL;
@@ -402,7 +402,7 @@ int pxt4_mpage_readpages(struct address_space *mapping,
 			bio = NULL;
 		} else
 			last_block_in_bio = blocks[blocks_per_page - 1];
-		goto npxt2t_page;
+		goto next_page;
 	confused:
 		if (bio) {
 			submit_bio(bio);
@@ -412,7 +412,7 @@ int pxt4_mpage_readpages(struct address_space *mapping,
 			block_read_full_page(page, pxt4_get_block);
 		else
 			unlock_page(page);
-	npxt2t_page:
+	next_page:
 		if (pages)
 			put_page(page);
 	}
@@ -442,7 +442,7 @@ fail:
 	return -ENOMEM;
 }
 
-void pxt4_pxt2it_post_read_processing(void)
+void pxt4_exit_post_read_processing(void)
 {
 	mempool_destroy(bio_post_read_ctx_pool);
 	kmem_cache_destroy(bio_post_read_ctx_cache);

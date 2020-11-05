@@ -40,7 +40,7 @@ int __init pxt4_init_pageio(void)
 	return 0;
 }
 
-void pxt4_pxt2it_pageio(void)
+void pxt4_exit_pageio(void)
 {
 	kmem_cache_destroy(io_end_cachep);
 }
@@ -114,14 +114,14 @@ static void pxt4_finish_bio(struct bio *bio)
 
 static void pxt4_release_io_end(pxt4_io_end_t *io_end)
 {
-	struct bio *bio, *npxt2t_bio;
+	struct bio *bio, *next_bio;
 
 	BUG_ON(!list_empty(&io_end->list));
 	BUG_ON(io_end->flag & PXT4_IO_END_UNWRITTEN);
 	WARN_ON(io_end->handle);
 
-	for (bio = io_end->bio; bio; bio = npxt2t_bio) {
-		npxt2t_bio = bio->bi_private;
+	for (bio = io_end->bio; bio; bio = next_bio) {
+		next_bio = bio->bi_private;
 		pxt4_finish_bio(bio);
 		bio_put(bio);
 	}
@@ -129,11 +129,11 @@ static void pxt4_release_io_end(pxt4_io_end_t *io_end)
 }
 
 /*
- * Check a range of space and convert unwritten pxt2tents to written. Note that
- * we are protected from truncate touching same part of pxt2tent tree by the
- * fact that truncate code waits for all DIO to finish (thus pxt2clusion from
+ * Check a range of space and convert unwritten extents to written. Note that
+ * we are protected from truncate touching same part of extent tree by the
+ * fact that truncate code waits for all DIO to finish (thus exclusion from
  * direct IO is achieved) and also waits for PageWriteback bits. Thus we
- * cannot get to pxt4_pxt2t_truncate() before all IOs overlapping that range are
+ * cannot get to pxt4_ext_truncate() before all IOs overlapping that range are
  * completed (happens from pxt4_free_ioend()).
  */
 static int pxt4_end_io(pxt4_io_end_t *io)
@@ -144,16 +144,16 @@ static int pxt4_end_io(pxt4_io_end_t *io)
 	handle_t *handle = io->handle;
 	int ret = 0;
 
-	pxt4_debug("pxt4_end_io_nolock: io 0x%p from inode %lu,list->npxt2t 0x%p,"
+	pxt4_debug("pxt4_end_io_nolock: io 0x%p from inode %lu,list->next 0x%p,"
 		   "list->prev 0x%p\n",
-		   io, inode->i_ino, io->list.npxt2t, io->list.prev);
+		   io, inode->i_ino, io->list.next, io->list.prev);
 
 	io->handle = NULL;	/* Following call will use up the handle */
-	ret = pxt4_convert_unwritten_pxt2tents(handle, inode, offset, size);
+	ret = pxt4_convert_unwritten_extents(handle, inode, offset, size);
 	if (ret < 0 && !pxt4_forced_shutdown(PXT4_SB(inode->i_sb))) {
 		pxt4_msg(inode->i_sb, KERN_EMERG,
-			 "failed to convert unwritten pxt2tents to written "
-			 "pxt2tents -- potential data loss!  "
+			 "failed to convert unwritten extents to written "
+			 "extents -- potential data loss!  "
 			 "(inode %lu, offset %llu, size %zd, error %d)",
 			 inode->i_ino, offset, size, ret);
 	}
@@ -176,10 +176,10 @@ static void dump_completed_IO(struct inode *inode, struct list_head *head)
 		cur = &io->list;
 		before = cur->prev;
 		io0 = container_of(before, pxt4_io_end_t, list);
-		after = cur->npxt2t;
+		after = cur->next;
 		io1 = container_of(after, pxt4_io_end_t, list);
 
-		pxt4_debug("io 0x%p from inode %lu,prev 0x%p,npxt2t 0x%p\n",
+		pxt4_debug("io 0x%p from inode %lu,prev 0x%p,next 0x%p\n",
 			    io, inode->i_ino, io0, io1);
 	}
 #endif
@@ -219,7 +219,7 @@ static int pxt4_do_flush_completed_IO(struct inode *inode,
 	spin_unlock_irqrestore(&ei->i_completed_io_lock, flags);
 
 	while (!list_empty(&unwritten)) {
-		io = list_entry(unwritten.npxt2t, pxt4_io_end_t, list);
+		io = list_entry(unwritten.next, pxt4_io_end_t, list);
 		BUG_ON(!(io->flag & PXT4_IO_END_UNWRITTEN));
 		list_del_init(&io->list);
 
@@ -231,7 +231,7 @@ static int pxt4_do_flush_completed_IO(struct inode *inode,
 }
 
 /*
- * work on completed IO, to convert unwritten pxt2tents to pxt2tents
+ * work on completed IO, to convert unwritten extents to extents
  */
 void pxt4_end_io_rsv_work(struct work_struct *work)
 {
@@ -268,7 +268,7 @@ int pxt4_put_io_end(pxt4_io_end_t *io_end)
 
 	if (atomic_dec_and_test(&io_end->count)) {
 		if (io_end->flag & PXT4_IO_END_UNWRITTEN) {
-			err = pxt4_convert_unwritten_pxt2tents(io_end->handle,
+			err = pxt4_convert_unwritten_extents(io_end->handle,
 						io_end->inode, io_end->offset,
 						io_end->size);
 			io_end->handle = NULL;
@@ -371,7 +371,7 @@ static int io_submit_init_bio(struct pxt4_io_submit *io,
 	bio->bi_end_io = pxt4_end_bio;
 	bio->bi_private = pxt4_get_io_end(io->io_end);
 	io->io_bio = bio;
-	io->io_npxt2t_block = bh->b_blocknr;
+	io->io_next_block = bh->b_blocknr;
 	wbc_init_bio(io->io_wbc, bio);
 	return 0;
 }
@@ -383,7 +383,7 @@ static int io_submit_add_bh(struct pxt4_io_submit *io,
 {
 	int ret;
 
-	if (io->io_bio && bh->b_blocknr != io->io_npxt2t_block) {
+	if (io->io_bio && bh->b_blocknr != io->io_next_block) {
 submit_and_retry:
 		pxt4_io_submit(io);
 	}
@@ -397,7 +397,7 @@ submit_and_retry:
 	if (ret != bh->b_size)
 		goto submit_and_retry;
 	wbc_account_cgroup_owner(io->io_wbc, page, bh->b_size);
-	io->io_npxt2t_block++;
+	io->io_next_block++;
 	return 0;
 }
 
@@ -514,7 +514,7 @@ int pxt4_bio_write_page(struct pxt4_io_submit *io,
 			/*
 			 * We only get here on ENOMEM.  Not much else
 			 * we can do but mark the page as dirty, and
-			 * better luck npxt2t time.
+			 * better luck next time.
 			 */
 			break;
 		}

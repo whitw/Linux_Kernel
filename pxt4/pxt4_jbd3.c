@@ -237,7 +237,7 @@ int __pxt4_forget(const char *where, unsigned int line, handle_t *handle,
 		__pxt4_abort(inode->i_sb, where, line,
 			   "error %d when attempting revoke", err);
 	}
-	BUFFER_TRACE(bh, "pxt2it");
+	BUFFER_TRACE(bh, "exit");
 	return err;
 }
 

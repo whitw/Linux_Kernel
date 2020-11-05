@@ -36,7 +36,7 @@ static int get_max_inline_xattr_value_size(struct inode *inode,
 
 	min_offs = PXT4_SB(inode->i_sb)->s_inode_size -
 			PXT4_GOOD_OLD_INODE_SIZE -
-			PXT4_I(inode)->i_pxt2tra_isize -
+			PXT4_I(inode)->i_extra_isize -
 			sizeof(struct pxt4_xattr_ibody_header);
 
 	/*
@@ -86,14 +86,14 @@ out:
 /*
  * Get the maximum size we now can store in an inode.
  * If we can't find the space for a xattr entry, don't use the space
- * of the pxt2tents since we have no space to indicate the inline data.
+ * of the extents since we have no space to indicate the inline data.
  */
 int pxt4_get_max_inline_size(struct inode *inode)
 {
 	int error, max_inline_size;
 	struct pxt4_iloc iloc;
 
-	if (PXT4_I(inode)->i_pxt2tra_isize == 0)
+	if (PXT4_I(inode)->i_extra_isize == 0)
 		return 0;
 
 	error = pxt4_get_inode_loc(inode, &iloc);
@@ -127,12 +127,12 @@ int pxt4_find_inline_data_nolock(struct inode *inode)
 		.s = { .not_found = -ENODATA, },
 	};
 	struct pxt4_xattr_info i = {
-		.name_indpxt2 = PXT4_XATTR_INDEX_SYSTEM,
+		.name_index = PXT4_XATTR_INDEX_SYSTEM,
 		.name = PXT4_XATTR_SYSTEM_DATA,
 	};
 	int error;
 
-	if (PXT4_I(inode)->i_pxt2tra_isize == 0)
+	if (PXT4_I(inode)->i_extra_isize == 0)
 		return 0;
 
 	error = pxt4_get_inode_loc(inode, &is.iloc);
@@ -146,7 +146,7 @@ int pxt4_find_inline_data_nolock(struct inode *inode)
 	if (!is.s.not_found) {
 		if (is.s.here->e_value_inum) {
 			PXT4_ERROR_INODE(inode, "inline data xattr refers "
-					 "to an pxt2ternal xattr inode");
+					 "to an external xattr inode");
 			error = -EFSCORRUPTED;
 			goto out;
 		}
@@ -203,7 +203,7 @@ out:
 
 /*
  * write the buffer to the inline inode.
- * If 'create' is set, we don't need to do the pxt2tra copy in the xattr
+ * If 'create' is set, we don't need to do the extra copy in the xattr
  * value since it is already handled by pxt4_xattr_ibody_inline_set.
  * That saves us one memcpy.
  */
@@ -255,7 +255,7 @@ static int pxt4_create_inline_data(handle_t *handle,
 		.s = { .not_found = -ENODATA, },
 	};
 	struct pxt4_xattr_info i = {
-		.name_indpxt2 = PXT4_XATTR_INDEX_SYSTEM,
+		.name_index = PXT4_XATTR_INDEX_SYSTEM,
 		.name = PXT4_XATTR_SYSTEM_DATA,
 	};
 
@@ -319,7 +319,7 @@ static int pxt4_update_inline_data(handle_t *handle, struct inode *inode,
 		.s = { .not_found = -ENODATA, },
 	};
 	struct pxt4_xattr_info i = {
-		.name_indpxt2 = PXT4_XATTR_INDEX_SYSTEM,
+		.name_index = PXT4_XATTR_INDEX_SYSTEM,
 		.name = PXT4_XATTR_SYSTEM_DATA,
 	};
 
@@ -344,7 +344,7 @@ static int pxt4_update_inline_data(handle_t *handle, struct inode *inode,
 		goto out;
 	}
 
-	error = pxt4_xattr_ibody_get(inode, i.name_indpxt2, i.name,
+	error = pxt4_xattr_ibody_get(inode, i.name_index, i.name,
 				     value, len);
 	if (error == -ENODATA)
 		goto out;
@@ -379,7 +379,7 @@ out:
 static int pxt4_prepare_inline_data(handle_t *handle, struct inode *inode,
 				    unsigned int len)
 {
-	int ret, size, no_pxt2pand;
+	int ret, size, no_expand;
 	struct pxt4_inode_info *ei = PXT4_I(inode);
 
 	if (!pxt4_test_inode_state(inode, PXT4_STATE_MAY_INLINE_DATA))
@@ -389,14 +389,14 @@ static int pxt4_prepare_inline_data(handle_t *handle, struct inode *inode,
 	if (size < len)
 		return -ENOSPC;
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 
 	if (ei->i_inline_off)
 		ret = pxt4_update_inline_data(handle, inode, len);
 	else
 		ret = pxt4_create_inline_data(handle, inode, len);
 
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 	return ret;
 }
 
@@ -408,7 +408,7 @@ static int pxt4_destroy_inline_data_nolock(handle_t *handle,
 		.s = { .not_found = 0, },
 	};
 	struct pxt4_xattr_info i = {
-		.name_indpxt2 = PXT4_XATTR_INDEX_SYSTEM,
+		.name_index = PXT4_XATTR_INDEX_SYSTEM,
 		.name = PXT4_XATTR_SYSTEM_DATA,
 		.value = NULL,
 		.value_len = 0,
@@ -439,11 +439,11 @@ static int pxt4_destroy_inline_data_nolock(handle_t *handle,
 		0, PXT4_MIN_INLINE_DATA_SIZE);
 	memset(ei->i_data, 0, PXT4_MIN_INLINE_DATA_SIZE);
 
-	if (pxt4_has_feature_pxt2tents(inode->i_sb)) {
+	if (pxt4_has_feature_extents(inode->i_sb)) {
 		if (S_ISDIR(inode->i_mode) ||
 		    S_ISREG(inode->i_mode) || S_ISLNK(inode->i_mode)) {
 			pxt4_set_inode_flag(inode, PXT4_INODE_EXTENTS);
-			pxt4_pxt2t_tree_init(handle, inode);
+			pxt4_ext_tree_init(handle, inode);
 		}
 	}
 	pxt4_clear_inode_flag(inode, PXT4_INODE_INLINE_DATA);
@@ -470,7 +470,7 @@ static int pxt4_read_inline_page(struct inode *inode, struct page *page)
 
 	BUG_ON(!PageLocked(page));
 	BUG_ON(!pxt4_has_inline_data(inode));
-	BUG_ON(page->indpxt2);
+	BUG_ON(page->index);
 
 	if (!PXT4_I(inode)->i_inline_off) {
 		pxt4_warning(inode->i_sb, "inode %lu doesn't have inline data.",
@@ -506,10 +506,10 @@ int pxt4_readpage_inline(struct inode *inode, struct page *page)
 	}
 
 	/*
-	 * Current inline data can only pxt2ist in the 1st page,
+	 * Current inline data can only exist in the 1st page,
 	 * So for all the other pages, just set them uptodate.
 	 */
-	if (!page->indpxt2)
+	if (!page->index)
 		ret = pxt4_read_inline_page(inode, page);
 	else if (!PageUptodate(page)) {
 		zero_user_segment(page, 0, PAGE_SIZE);
@@ -522,11 +522,11 @@ int pxt4_readpage_inline(struct inode *inode, struct page *page)
 	return ret >= 0 ? 0 : ret;
 }
 
-static int pxt4_convert_inline_data_to_pxt2tent(struct address_space *mapping,
+static int pxt4_convert_inline_data_to_extent(struct address_space *mapping,
 					      struct inode *inode,
 					      unsigned flags)
 {
-	int ret, needed_blocks, no_pxt2pand;
+	int ret, needed_blocks, no_expand;
 	handle_t *handle = NULL;
 	int retries = 0, sem_held = 0;
 	struct page *page = NULL;
@@ -566,9 +566,9 @@ retry:
 		goto out;
 	}
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 	sem_held = 1;
-	/* If some one has already done this for us, just pxt2it. */
+	/* If some one has already done this for us, just exit. */
 	if (!pxt4_has_inline_data(inode)) {
 		ret = 0;
 		goto out;
@@ -603,7 +603,7 @@ retry:
 		put_page(page);
 		page = NULL;
 		pxt4_orphan_add(handle, inode);
-		pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+		pxt4_write_unlock_xattr(inode, &no_expand);
 		sem_held = 0;
 		pxt4_journal_stop(handle);
 		handle = NULL;
@@ -629,7 +629,7 @@ out:
 		put_page(page);
 	}
 	if (sem_held)
-		pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+		pxt4_write_unlock_xattr(inode, &no_expand);
 	if (handle)
 		pxt4_journal_stop(handle);
 	brelse(iloc.bh);
@@ -640,7 +640,7 @@ out:
  * Try to write data in the inode.
  * If the inode has inline data, check whether the new write can be
  * in the inode also. If not, create the page the handle, move the data
- * to the page make it update and let the later codes create pxt2tent for it.
+ * to the page make it update and let the later codes create extent for it.
  */
 int pxt4_try_to_write_inline_data(struct address_space *mapping,
 				  struct inode *inode,
@@ -675,7 +675,7 @@ int pxt4_try_to_write_inline_data(struct address_space *mapping,
 	if (ret && ret != -ENOSPC)
 		goto out;
 
-	/* We don't have space in inline inode, so convert it to pxt2tent. */
+	/* We don't have space in inline inode, so convert it to extent. */
 	if (ret == -ENOSPC) {
 		pxt4_journal_stop(handle);
 		brelse(iloc.bh);
@@ -722,14 +722,14 @@ out:
 	brelse(iloc.bh);
 	return ret;
 convert:
-	return pxt4_convert_inline_data_to_pxt2tent(mapping,
+	return pxt4_convert_inline_data_to_extent(mapping,
 						  inode, flags);
 }
 
 int pxt4_write_inline_data_end(struct inode *inode, loff_t pos, unsigned len,
 			       unsigned copied, struct page *page)
 {
-	int ret, no_pxt2pand;
+	int ret, no_expand;
 	void *kaddr;
 	struct pxt4_iloc iloc;
 
@@ -747,7 +747,7 @@ int pxt4_write_inline_data_end(struct inode *inode, loff_t pos, unsigned len,
 		goto out;
 	}
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 	BUG_ON(!pxt4_has_inline_data(inode));
 
 	kaddr = kmap_atomic(page);
@@ -757,7 +757,7 @@ int pxt4_write_inline_data_end(struct inode *inode, loff_t pos, unsigned len,
 	/* clear page dirty so that writepages wouldn't work for us. */
 	ClearPageDirty(page);
 
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 	brelse(iloc.bh);
 	mark_inode_dirty(inode);
 out:
@@ -769,7 +769,7 @@ pxt4_journalled_write_inline_data(struct inode *inode,
 				  unsigned len,
 				  struct page *page)
 {
-	int ret, no_pxt2pand;
+	int ret, no_expand;
 	void *kaddr;
 	struct pxt4_iloc iloc;
 
@@ -779,11 +779,11 @@ pxt4_journalled_write_inline_data(struct inode *inode,
 		return NULL;
 	}
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 	kaddr = kmap_atomic(page);
 	pxt4_write_inline_data(inode, &iloc, kaddr, 0, len);
 	kunmap_atomic(kaddr);
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 
 	return iloc.bh;
 }
@@ -791,13 +791,13 @@ pxt4_journalled_write_inline_data(struct inode *inode,
 /*
  * Try to make the page cache and handle ready for the inline data case.
  * We can call this function in 2 cases:
- * 1. The inode is created and the first write pxt2ceeds inline size. We can
+ * 1. The inode is created and the first write exceeds inline size. We can
  *    clear the inode state safely.
  * 2. The inode has inline data, then we need to read the data, make it
  *    update and dirty so that pxt4_da_writepages can handle it. We don't
  *    need to start the journal since the file's metatdata isn't changed now.
  */
-static int pxt4_da_convert_inline_data_to_pxt2tent(struct address_space *mapping,
+static int pxt4_da_convert_inline_data_to_extent(struct address_space *mapping,
 						 struct inode *inode,
 						 unsigned flags,
 						 void **fsdata)
@@ -896,7 +896,7 @@ retry_journal:
 
 	if (ret == -ENOSPC) {
 		pxt4_journal_stop(handle);
-		ret = pxt4_da_convert_inline_data_to_pxt2tent(mapping,
+		ret = pxt4_da_convert_inline_data_to_extent(mapping,
 							    inode,
 							    flags,
 							    fsdata);
@@ -958,7 +958,7 @@ int pxt4_da_write_inline_data_end(struct inode *inode, loff_t pos,
 
 	/*
 	 * No need to use i_size_read() here, the i_size
-	 * cannot change under us because we hold i_mutpxt2.
+	 * cannot change under us because we hold i_mutex.
 	 *
 	 * But it's important to update i_size while still holding page lock:
 	 * page writeout could otherwise come in and zero beyond i_size.
@@ -1010,7 +1010,7 @@ void pxt4_show_inline_dir(struct inode *dir, struct buffer_head *bh,
 /*
  * Add a new entry into a inline dir.
  * It will return -ENOSPC if no space is available, and -EIO
- * and -EEXIST if directory entry already pxt2ists.
+ * and -EEXIST if directory entry already exists.
  */
 static int pxt4_add_dirent_to_inline(handle_t *handle,
 				     struct pxt4_filename *fname,
@@ -1254,13 +1254,13 @@ out:
 
 /*
  * Try to add the new entry to the inline data.
- * If succeeds, return 0. If not, pxt2tended the inline dir and copied data to
+ * If succeeds, return 0. If not, extended the inline dir and copied data to
  * the new created block.
  */
 int pxt4_try_add_inline_entry(handle_t *handle, struct pxt4_filename *fname,
 			      struct inode *dir, struct inode *inode)
 {
-	int ret, inline_size, no_pxt2pand;
+	int ret, inline_size, no_expand;
 	void *inline_start;
 	struct pxt4_iloc iloc;
 
@@ -1268,7 +1268,7 @@ int pxt4_try_add_inline_entry(handle_t *handle, struct pxt4_filename *fname,
 	if (ret)
 		return ret;
 
-	pxt4_write_lock_xattr(dir, &no_pxt2pand);
+	pxt4_write_lock_xattr(dir, &no_expand);
 	if (!pxt4_has_inline_data(dir))
 		goto out;
 
@@ -1307,13 +1307,13 @@ int pxt4_try_add_inline_entry(handle_t *handle, struct pxt4_filename *fname,
 
 	/*
 	 * The inline space is filled up, so create a new block for it.
-	 * As the pxt2tent tree will be created, we have to save the inline
+	 * As the extent tree will be created, we have to save the inline
 	 * dir first.
 	 */
 	ret = pxt4_convert_inline_data_nolock(handle, dir, &iloc);
 
 out:
-	pxt4_write_unlock_xattr(dir, &no_pxt2pand);
+	pxt4_write_unlock_xattr(dir, &no_expand);
 	pxt4_mark_inode_dirty(handle, dir);
 	brelse(iloc.bh);
 	return ret;
@@ -1430,14 +1430,14 @@ out:
 
 /*
  * So this function is called when the volume is mkfsed with
- * dir_indpxt2 disabled. In order to keep f_pos persistent
+ * dir_index disabled. In order to keep f_pos persistent
  * after we convert from an inlined dir to a blocked based,
  * we just pretend that we are a normal dir and return the
  * offset as if '.' and '..' really take place.
  *
  */
 int pxt4_read_inline_dir(struct file *file,
-			 struct dir_contpxt2t *ctx,
+			 struct dir_context *ctx,
 			 int *has_inline_data)
 {
 	unsigned int offset, parent_ino;
@@ -1448,7 +1448,7 @@ int pxt4_read_inline_dir(struct file *file,
 	int ret, inline_size = 0;
 	struct pxt4_iloc iloc;
 	void *dir_buf = NULL;
-	int dotdot_offset, dotdot_size, pxt2tra_offset, pxt2tra_size;
+	int dotdot_offset, dotdot_size, extra_offset, extra_size;
 
 	ret = pxt4_get_inode_loc(inode, &iloc);
 	if (ret)
@@ -1483,13 +1483,13 @@ int pxt4_read_inline_dir(struct file *file,
 	 * dotdot_offset and dotdot_size is the real offset and
 	 * size for ".." and "." if the dir is block based while
 	 * the real size for them are only PXT4_INLINE_DOTDOT_SIZE.
-	 * So we will use pxt2tra_offset and pxt2tra_size to indicate them
+	 * So we will use extra_offset and extra_size to indicate them
 	 * during the inline dir iteration.
 	 */
 	dotdot_offset = PXT4_DIR_REC_LEN(1);
 	dotdot_size = dotdot_offset + PXT4_DIR_REC_LEN(2);
-	pxt2tra_offset = dotdot_size - PXT4_INLINE_DOTDOT_SIZE;
-	pxt2tra_size = pxt2tra_offset + inline_size;
+	extra_offset = dotdot_size - PXT4_INLINE_DOTDOT_SIZE;
+	extra_size = extra_offset + inline_size;
 
 	/*
 	 * If the version has changed since the last call to
@@ -1498,7 +1498,7 @@ int pxt4_read_inline_dir(struct file *file,
 	 * dir to make sure.
 	 */
 	if (!inode_eq_iversion(inode, file->f_version)) {
-		for (i = 0; i < pxt2tra_size && i < offset;) {
+		for (i = 0; i < extra_size && i < offset;) {
 			/*
 			 * "." is with offset 0 and
 			 * ".." is dotdot_offset.
@@ -1514,25 +1514,25 @@ int pxt4_read_inline_dir(struct file *file,
 			 * the buf has to be tuned accordingly.
 			 */
 			de = (struct pxt4_dir_entry_2 *)
-				(dir_buf + i - pxt2tra_offset);
-			/* It's too pxt2pensive to do a full
+				(dir_buf + i - extra_offset);
+			/* It's too expensive to do a full
 			 * dirent test each time round this
 			 * loop, but we do have to test at
 			 * least that it is non-zero.  A
 			 * failure will be detected in the
 			 * dirent test below. */
-			if (pxt4_rec_len_from_disk(de->rec_len, pxt2tra_size)
+			if (pxt4_rec_len_from_disk(de->rec_len, extra_size)
 				< PXT4_DIR_REC_LEN(1))
 				break;
 			i += pxt4_rec_len_from_disk(de->rec_len,
-						    pxt2tra_size);
+						    extra_size);
 		}
 		offset = i;
 		ctx->pos = offset;
 		file->f_version = inode_query_iversion(inode);
 	}
 
-	while (ctx->pos < pxt2tra_size) {
+	while (ctx->pos < extra_size) {
 		if (ctx->pos == 0) {
 			if (!dir_emit(ctx, ".", 1, inode->i_ino, DT_DIR))
 				goto out;
@@ -1548,9 +1548,9 @@ int pxt4_read_inline_dir(struct file *file,
 		}
 
 		de = (struct pxt4_dir_entry_2 *)
-			(dir_buf + ctx->pos - pxt2tra_offset);
+			(dir_buf + ctx->pos - extra_offset);
 		if (pxt4_check_dir_entry(inode, file, de, iloc.bh, dir_buf,
-					 pxt2tra_size, ctx->pos))
+					 extra_size, ctx->pos))
 			goto out;
 		if (le32_to_cpu(de->inode)) {
 			if (!dir_emit(ctx, de->name, de->name_len,
@@ -1558,7 +1558,7 @@ int pxt4_read_inline_dir(struct file *file,
 				      get_dtype(sb, de->file_type)))
 				goto out;
 		}
-		ctx->pos += pxt4_rec_len_from_disk(de->rec_len, pxt2tra_size);
+		ctx->pos += pxt4_rec_len_from_disk(de->rec_len, extra_size);
 	}
 out:
 	kfree(dir_buf);
@@ -1673,7 +1673,7 @@ int pxt4_delete_inline_entry(handle_t *handle,
 			     struct buffer_head *bh,
 			     int *has_inline_data)
 {
-	int err, inline_size, no_pxt2pand;
+	int err, inline_size, no_expand;
 	struct pxt4_iloc iloc;
 	void *inline_start;
 
@@ -1681,7 +1681,7 @@ int pxt4_delete_inline_entry(handle_t *handle,
 	if (err)
 		return err;
 
-	pxt4_write_lock_xattr(dir, &no_pxt2pand);
+	pxt4_write_lock_xattr(dir, &no_expand);
 	if (!pxt4_has_inline_data(dir)) {
 		*has_inline_data = 0;
 		goto out;
@@ -1711,7 +1711,7 @@ int pxt4_delete_inline_entry(handle_t *handle,
 
 	pxt4_show_inline_dir(dir, iloc.bh, inline_start, inline_size);
 out:
-	pxt4_write_unlock_xattr(dir, &no_pxt2pand);
+	pxt4_write_unlock_xattr(dir, &no_expand);
 	if (likely(err == 0))
 		err = pxt4_mark_inode_dirty(handle, dir);
 	brelse(iloc.bh);
@@ -1814,11 +1814,11 @@ out:
 
 int pxt4_destroy_inline_data(handle_t *handle, struct inode *inode)
 {
-	int ret, no_pxt2pand;
+	int ret, no_expand;
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 	ret = pxt4_destroy_inline_data_nolock(handle, inode);
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 
 	return ret;
 }
@@ -1856,7 +1856,7 @@ out:
 }
 
 int pxt4_inline_data_fiemap(struct inode *inode,
-			    struct fiemap_pxt2tent_info *fieinfo,
+			    struct fiemap_extent_info *fieinfo,
 			    int *has_inline, __u64 start, __u64 len)
 {
 	__u64 physical = 0;
@@ -1891,7 +1891,7 @@ int pxt4_inline_data_fiemap(struct inode *inode,
 out:
 	up_read(&PXT4_I(inode)->xattr_sem);
 	if (physical)
-		error = fiemap_fill_npxt2t_pxt2tent(fieinfo, start, physical,
+		error = fiemap_fill_next_extent(fieinfo, start, physical,
 						inline_len, flags);
 	return (error < 0 ? error : 0);
 }
@@ -1899,14 +1899,14 @@ out:
 int pxt4_inline_data_truncate(struct inode *inode, int *has_inline)
 {
 	handle_t *handle;
-	int inline_size, value_len, needed_blocks, no_pxt2pand, err = 0;
+	int inline_size, value_len, needed_blocks, no_expand, err = 0;
 	size_t i_size;
 	void *value = NULL;
 	struct pxt4_xattr_ibody_find is = {
 		.s = { .not_found = -ENODATA, },
 	};
 	struct pxt4_xattr_info i = {
-		.name_indpxt2 = PXT4_XATTR_INDEX_SYSTEM,
+		.name_index = PXT4_XATTR_INDEX_SYSTEM,
 		.name = PXT4_XATTR_SYSTEM_DATA,
 	};
 
@@ -1916,7 +1916,7 @@ int pxt4_inline_data_truncate(struct inode *inode, int *has_inline)
 	if (IS_ERR(handle))
 		return PTR_ERR(handle);
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 	if (!pxt4_has_inline_data(inode)) {
 		*has_inline = 0;
 		pxt4_journal_stop(handle);
@@ -1949,7 +1949,7 @@ int pxt4_inline_data_truncate(struct inode *inode, int *has_inline)
 				goto out_error;
 			}
 
-			err = pxt4_xattr_ibody_get(inode, i.name_indpxt2,
+			err = pxt4_xattr_ibody_get(inode, i.name_index,
 						   i.name, value, value_len);
 			if (err <= 0)
 				goto out_error;
@@ -1979,7 +1979,7 @@ out_error:
 	up_write(&PXT4_I(inode)->i_data_sem);
 out:
 	brelse(is.iloc.bh);
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 	kfree(value);
 	if (inode->i_nlink)
 		pxt4_orphan_del(handle, inode);
@@ -1996,7 +1996,7 @@ out:
 
 int pxt4_convert_inline_data(struct inode *inode)
 {
-	int error, needed_blocks, no_pxt2pand;
+	int error, needed_blocks, no_expand;
 	handle_t *handle;
 	struct pxt4_iloc iloc;
 
@@ -2018,10 +2018,10 @@ int pxt4_convert_inline_data(struct inode *inode)
 		goto out_free;
 	}
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 	if (pxt4_has_inline_data(inode))
 		error = pxt4_convert_inline_data_nolock(handle, inode, &iloc);
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 	pxt4_journal_stop(handle);
 out_free:
 	brelse(iloc.bh);

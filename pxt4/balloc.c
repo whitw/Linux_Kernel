@@ -105,9 +105,9 @@ static unsigned pxt4_num_overhead_clusters(struct super_block *sb,
 	 * for in the clusters used for the base metadata cluster, or
 	 * if we can increment the base metadata cluster to include
 	 * that block.  Otherwise, we will have to track the cluster
-	 * used for the allocation bitmap or inode table pxt2plicitly.
+	 * used for the allocation bitmap or inode table explicitly.
 	 * Normally all of these blocks are contiguous, so the special
-	 * case handling shouldn't be necessary pxt2cept for *very*
+	 * case handling shouldn't be necessary except for *very*
 	 * unusual file system layouts.
 	 */
 	if (pxt4_block_in_group(sb, pxt4_block_bitmap(sb, gdp), block_group)) {
@@ -314,12 +314,12 @@ static pxt4_fsblk_t pxt4_valid_block_bitmap(struct super_block *sb,
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(sb);
 	pxt4_grpblk_t offset;
-	pxt4_grpblk_t npxt2t_zero_bit;
+	pxt4_grpblk_t next_zero_bit;
 	pxt4_grpblk_t max_bit = PXT4_CLUSTERS_PER_GROUP(sb);
 	pxt4_fsblk_t blk;
 	pxt4_fsblk_t group_first_block;
 
-	if (pxt4_has_feature_flpxt2_bg(sb)) {
+	if (pxt4_has_feature_flex_bg(sb)) {
 		/* with FLEX_BG, the inode/block bitmaps and itable
 		 * blocks may not be in the group at all
 		 * so the bitmap validation will be skipped for those groups
@@ -352,10 +352,10 @@ static pxt4_fsblk_t pxt4_valid_block_bitmap(struct super_block *sb,
 	if (offset < 0 || PXT4_B2C(sbi, offset) >= max_bit ||
 	    PXT4_B2C(sbi, offset + sbi->s_itb_per_group) >= max_bit)
 		return blk;
-	npxt2t_zero_bit = pxt4_find_npxt2t_zero_bit(bh->b_data,
+	next_zero_bit = pxt4_find_next_zero_bit(bh->b_data,
 			PXT4_B2C(sbi, offset + sbi->s_itb_per_group),
 			PXT4_B2C(sbi, offset));
-	if (npxt2t_zero_bit <
+	if (next_zero_bit <
 	    PXT4_B2C(sbi, offset + sbi->s_itb_per_group))
 		/* bad bitmap for inode tables */
 		return blk;
@@ -637,7 +637,7 @@ int pxt4_should_retry_alloc(struct super_block *sb, int *retries)
 }
 
 /*
- * pxt4_new_meta_blocks() -- allocate block for meta data (indpxt2ing) blocks
+ * pxt4_new_meta_blocks() -- allocate block for meta data (indexing) blocks
  *
  * @handle:             handle to this transaction
  * @inode:              file inode
@@ -872,21 +872,21 @@ pxt4_fsblk_t pxt4_inode_to_goal_block(struct inode *inode)
 	struct pxt4_inode_info *ei = PXT4_I(inode);
 	pxt4_group_t block_group;
 	pxt4_grpblk_t colour;
-	int flpxt2_size = pxt4_flpxt2_bg_size(PXT4_SB(inode->i_sb));
+	int flex_size = pxt4_flex_bg_size(PXT4_SB(inode->i_sb));
 	pxt4_fsblk_t bg_start;
 	pxt4_fsblk_t last_block;
 
 	block_group = ei->i_block_group;
-	if (flpxt2_size >= PXT4_FLEX_SIZE_DIR_ALLOC_SCHEME) {
+	if (flex_size >= PXT4_FLEX_SIZE_DIR_ALLOC_SCHEME) {
 		/*
 		 * If there are at least PXT4_FLEX_SIZE_DIR_ALLOC_SCHEME
-		 * block groups per flpxt2group, reserve the first block
+		 * block groups per flexgroup, reserve the first block
 		 * group for directories and special files.  Regular
 		 * files will start at the second block group.  This
 		 * tends to speed up directory access and improves
 		 * fsck times.
 		 */
-		block_group &= ~(flpxt2_size-1);
+		block_group &= ~(flex_size-1);
 		if (S_ISREG(inode->i_mode))
 			block_group++;
 	}

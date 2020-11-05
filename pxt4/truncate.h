@@ -22,7 +22,7 @@ static inline void pxt4_truncate_failed_write(struct inode *inode)
 }
 
 /*
- * Work out how many blocks we need to proceed with the npxt2t chunk of a
+ * Work out how many blocks we need to proceed with the next chunk of a
  * truncate transaction.
  */
 static inline unsigned long pxt4_blocks_for_truncate(struct inode *inode)

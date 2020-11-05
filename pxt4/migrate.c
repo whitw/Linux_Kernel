@@ -7,11 +7,11 @@
 
 #include <linux/slab.h>
 #include "pxt4_jbd3.h"
-#include "pxt4_pxt2tents.h"
+#include "pxt4_extents.h"
 
 /*
  * The contiguous blocks details which can be
- * represented by a single pxt2tent
+ * represented by a single extent
  */
 struct migrate_struct {
 	pxt4_lblk_t first_block, last_block, curr_block;
@@ -23,18 +23,18 @@ static int finish_range(handle_t *handle, struct inode *inode,
 
 {
 	int retval = 0, needed;
-	struct pxt4_pxt2tent newpxt2t;
-	struct pxt4_pxt2t_path *path;
+	struct pxt4_extent newext;
+	struct pxt4_ext_path *path;
 	if (lb->first_pblock == 0)
 		return 0;
 
-	/* Add the pxt2tent to temp inode*/
-	newpxt2t.ee_block = cpu_to_le32(lb->first_block);
-	newpxt2t.ee_len   = cpu_to_le16(lb->last_block - lb->first_block + 1);
-	pxt4_pxt2t_store_pblock(&newpxt2t, lb->first_pblock);
+	/* Add the extent to temp inode*/
+	newext.ee_block = cpu_to_le32(lb->first_block);
+	newext.ee_len   = cpu_to_le16(lb->last_block - lb->first_block + 1);
+	pxt4_ext_store_pblock(&newext, lb->first_pblock);
 	/* Locking only for convinience since we are operating on temp inode */
 	down_write(&PXT4_I(inode)->i_data_sem);
-	path = pxt4_find_pxt2tent(inode, lb->first_block, NULL, 0);
+	path = pxt4_find_extent(inode, lb->first_block, NULL, 0);
 	if (IS_ERR(path)) {
 		retval = PTR_ERR(path);
 		path = NULL;
@@ -42,12 +42,12 @@ static int finish_range(handle_t *handle, struct inode *inode,
 	}
 
 	/*
-	 * Calculate the credit needed to inserting this pxt2tent
-	 * Since we are doing this in loop we may accumalate pxt2tra
+	 * Calculate the credit needed to inserting this extent
+	 * Since we are doing this in loop we may accumalate extra
 	 * credit. But below we try to not accumalate too much
 	 * of them by restarting the journal.
 	 */
-	needed = pxt4_pxt2t_calc_credits_for_single_pxt2tent(inode,
+	needed = pxt4_ext_calc_credits_for_single_extent(inode,
 		    lb->last_block - lb->first_block + 1, path);
 
 	/*
@@ -61,10 +61,10 @@ static int finish_range(handle_t *handle, struct inode *inode,
 		if (retval)
 			goto err_out;
 	} else if (needed) {
-		retval = pxt4_journal_pxt2tend(handle, needed);
+		retval = pxt4_journal_extend(handle, needed);
 		if (retval) {
 			/*
-			 * IF not able to pxt2tend the journal restart the journal
+			 * IF not able to extend the journal restart the journal
 			 */
 			up_write((&PXT4_I(inode)->i_data_sem));
 			retval = pxt4_journal_restart(handle, needed);
@@ -73,21 +73,21 @@ static int finish_range(handle_t *handle, struct inode *inode,
 				goto err_out;
 		}
 	}
-	retval = pxt4_pxt2t_insert_pxt2tent(handle, inode, &path, &newpxt2t, 0);
+	retval = pxt4_ext_insert_extent(handle, inode, &path, &newext, 0);
 err_out:
 	up_write((&PXT4_I(inode)->i_data_sem));
-	pxt4_pxt2t_drop_refs(path);
+	pxt4_ext_drop_refs(path);
 	kfree(path);
 	lb->first_pblock = 0;
 	return retval;
 }
 
-static int update_pxt2tent_range(handle_t *handle, struct inode *inode,
+static int update_extent_range(handle_t *handle, struct inode *inode,
 			       pxt4_fsblk_t pblock, struct migrate_struct *lb)
 {
 	int retval;
 	/*
-	 * See if we can add on to the pxt2isting range (if it pxt2ists)
+	 * See if we can add on to the existing range (if it exists)
 	 */
 	if (lb->first_pblock &&
 		(lb->last_pblock+1 == pblock) &&
@@ -107,7 +107,7 @@ static int update_pxt2tent_range(handle_t *handle, struct inode *inode,
 	return retval;
 }
 
-static int update_ind_pxt2tent_range(handle_t *handle, struct inode *inode,
+static int update_ind_extent_range(handle_t *handle, struct inode *inode,
 				   pxt4_fsblk_t pblock,
 				   struct migrate_struct *lb)
 {
@@ -123,7 +123,7 @@ static int update_ind_pxt2tent_range(handle_t *handle, struct inode *inode,
 	i_data = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++) {
 		if (i_data[i]) {
-			retval = update_pxt2tent_range(handle, inode,
+			retval = update_extent_range(handle, inode,
 						le32_to_cpu(i_data[i]), lb);
 			if (retval)
 				break;
@@ -136,7 +136,7 @@ static int update_ind_pxt2tent_range(handle_t *handle, struct inode *inode,
 
 }
 
-static int update_dind_pxt2tent_range(handle_t *handle, struct inode *inode,
+static int update_dind_extent_range(handle_t *handle, struct inode *inode,
 				    pxt4_fsblk_t pblock,
 				    struct migrate_struct *lb)
 {
@@ -152,7 +152,7 @@ static int update_dind_pxt2tent_range(handle_t *handle, struct inode *inode,
 	i_data = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++) {
 		if (i_data[i]) {
-			retval = update_ind_pxt2tent_range(handle, inode,
+			retval = update_ind_extent_range(handle, inode,
 						le32_to_cpu(i_data[i]), lb);
 			if (retval)
 				break;
@@ -166,7 +166,7 @@ static int update_dind_pxt2tent_range(handle_t *handle, struct inode *inode,
 
 }
 
-static int update_tind_pxt2tent_range(handle_t *handle, struct inode *inode,
+static int update_tind_extent_range(handle_t *handle, struct inode *inode,
 				    pxt4_fsblk_t pblock,
 				    struct migrate_struct *lb)
 {
@@ -182,7 +182,7 @@ static int update_tind_pxt2tent_range(handle_t *handle, struct inode *inode,
 	i_data = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++) {
 		if (i_data[i]) {
-			retval = update_dind_pxt2tent_range(handle, inode,
+			retval = update_dind_extent_range(handle, inode,
 						le32_to_cpu(i_data[i]), lb);
 			if (retval)
 				break;
@@ -196,7 +196,7 @@ static int update_tind_pxt2tent_range(handle_t *handle, struct inode *inode,
 
 }
 
-static int pxt2tend_credit_for_blkdel(handle_t *handle, struct inode *inode)
+static int extend_credit_for_blkdel(handle_t *handle, struct inode *inode)
 {
 	int retval = 0, needed;
 
@@ -210,7 +210,7 @@ static int pxt2tend_credit_for_blkdel(handle_t *handle, struct inode *inode)
 	 */
 	needed = 3 + PXT4_MAXQUOTAS_TRANS_BLOCKS(inode->i_sb);
 
-	if (pxt4_journal_pxt2tend(handle, needed) != 0)
+	if (pxt4_journal_extend(handle, needed) != 0)
 		retval = pxt4_journal_restart(handle, needed);
 
 	return retval;
@@ -231,7 +231,7 @@ static int free_dind_blocks(handle_t *handle,
 	tmp_idata = (__le32 *)bh->b_data;
 	for (i = 0; i < max_entries; i++) {
 		if (tmp_idata[i]) {
-			pxt2tend_credit_for_blkdel(handle, inode);
+			extend_credit_for_blkdel(handle, inode);
 			pxt4_free_blocks(handle, inode, NULL,
 					 le32_to_cpu(tmp_idata[i]), 1,
 					 PXT4_FREE_BLOCKS_METADATA |
@@ -239,7 +239,7 @@ static int free_dind_blocks(handle_t *handle,
 		}
 	}
 	put_bh(bh);
-	pxt2tend_credit_for_blkdel(handle, inode);
+	extend_credit_for_blkdel(handle, inode);
 	pxt4_free_blocks(handle, inode, NULL, le32_to_cpu(i_data), 1,
 			 PXT4_FREE_BLOCKS_METADATA |
 			 PXT4_FREE_BLOCKS_FORGET);
@@ -270,7 +270,7 @@ static int free_tind_blocks(handle_t *handle,
 		}
 	}
 	put_bh(bh);
-	pxt2tend_credit_for_blkdel(handle, inode);
+	extend_credit_for_blkdel(handle, inode);
 	pxt4_free_blocks(handle, inode, NULL, le32_to_cpu(i_data), 1,
 			 PXT4_FREE_BLOCKS_METADATA |
 			 PXT4_FREE_BLOCKS_FORGET);
@@ -283,7 +283,7 @@ static int free_ind_block(handle_t *handle, struct inode *inode, __le32 *i_data)
 
 	/* ei->i_data[PXT4_IND_BLOCK] */
 	if (i_data[0]) {
-		pxt2tend_credit_for_blkdel(handle, inode);
+		extend_credit_for_blkdel(handle, inode);
 		pxt4_free_blocks(handle, inode, NULL,
 				le32_to_cpu(i_data[0]), 1,
 				 PXT4_FREE_BLOCKS_METADATA |
@@ -306,7 +306,7 @@ static int free_ind_block(handle_t *handle, struct inode *inode, __le32 *i_data)
 	return 0;
 }
 
-static int pxt4_pxt2t_swap_inode_data(handle_t *handle, struct inode *inode,
+static int pxt4_ext_swap_inode_data(handle_t *handle, struct inode *inode,
 						struct inode *tmp_inode)
 {
 	int retval;
@@ -318,7 +318,7 @@ static int pxt4_pxt2t_swap_inode_data(handle_t *handle, struct inode *inode,
 	 * One credit accounted for writing the
 	 * i_data field of the original inode
 	 */
-	retval = pxt4_journal_pxt2tend(handle, 1);
+	retval = pxt4_journal_extend(handle, 1);
 	if (retval) {
 		retval = pxt4_journal_restart(handle, 1);
 		if (retval)
@@ -342,7 +342,7 @@ static int pxt4_pxt2t_swap_inode_data(handle_t *handle, struct inode *inode,
 	} else
 		pxt4_clear_inode_state(inode, PXT4_STATE_EXT_MIGRATE);
 	/*
-	 * We have the pxt2tent map build with the tmp inode.
+	 * We have the extent map build with the tmp inode.
 	 * Now copy the i_data across
 	 */
 	pxt4_set_inode_flag(inode, PXT4_INODE_EXTENTS);
@@ -350,11 +350,11 @@ static int pxt4_pxt2t_swap_inode_data(handle_t *handle, struct inode *inode,
 
 	/*
 	 * Update i_blocks with the new blocks that got
-	 * allocated while adding pxt2tents for pxt2tent indpxt2
+	 * allocated while adding extents for extent index
 	 * blocks.
 	 *
-	 * While converting to pxt2tents we need not
-	 * update the original inode i_blocks for pxt2tent blocks
+	 * While converting to extents we need not
+	 * update the original inode i_blocks for extent blocks
 	 * via quota APIs. The quota update happened via tmp_inode already.
 	 */
 	spin_lock(&inode->i_lock);
@@ -373,59 +373,59 @@ err_out:
 	return retval;
 }
 
-static int free_pxt2t_idx(handle_t *handle, struct inode *inode,
-					struct pxt4_pxt2tent_idx *ix)
+static int free_ext_idx(handle_t *handle, struct inode *inode,
+					struct pxt4_extent_idx *ix)
 {
 	int i, retval = 0;
 	pxt4_fsblk_t block;
 	struct buffer_head *bh;
-	struct pxt4_pxt2tent_header *eh;
+	struct pxt4_extent_header *eh;
 
 	block = pxt4_idx_pblock(ix);
 	bh = pxt4_sb_bread(inode->i_sb, block, 0);
 	if (IS_ERR(bh))
 		return PTR_ERR(bh);
 
-	eh = (struct pxt4_pxt2tent_header *)bh->b_data;
+	eh = (struct pxt4_extent_header *)bh->b_data;
 	if (eh->eh_depth != 0) {
 		ix = EXT_FIRST_INDEX(eh);
 		for (i = 0; i < le16_to_cpu(eh->eh_entries); i++, ix++) {
-			retval = free_pxt2t_idx(handle, inode, ix);
+			retval = free_ext_idx(handle, inode, ix);
 			if (retval)
 				break;
 		}
 	}
 	put_bh(bh);
-	pxt2tend_credit_for_blkdel(handle, inode);
+	extend_credit_for_blkdel(handle, inode);
 	pxt4_free_blocks(handle, inode, NULL, block, 1,
 			 PXT4_FREE_BLOCKS_METADATA | PXT4_FREE_BLOCKS_FORGET);
 	return retval;
 }
 
 /*
- * Free the pxt2tent meta data blocks only
+ * Free the extent meta data blocks only
  */
-static int free_pxt2t_block(handle_t *handle, struct inode *inode)
+static int free_ext_block(handle_t *handle, struct inode *inode)
 {
 	int i, retval = 0;
 	struct pxt4_inode_info *ei = PXT4_I(inode);
-	struct pxt4_pxt2tent_header *eh = (struct pxt4_pxt2tent_header *)ei->i_data;
-	struct pxt4_pxt2tent_idx *ix;
+	struct pxt4_extent_header *eh = (struct pxt4_extent_header *)ei->i_data;
+	struct pxt4_extent_idx *ix;
 	if (eh->eh_depth == 0)
 		/*
-		 * No pxt2tra blocks allocated for pxt2tent meta data
+		 * No extra blocks allocated for extent meta data
 		 */
 		return 0;
 	ix = EXT_FIRST_INDEX(eh);
 	for (i = 0; i < le16_to_cpu(eh->eh_entries); i++, ix++) {
-		retval = free_pxt2t_idx(handle, inode, ix);
+		retval = free_ext_idx(handle, inode, ix);
 		if (retval)
 			return retval;
 	}
 	return retval;
 }
 
-int pxt4_pxt2t_migrate(struct inode *inode)
+int pxt4_ext_migrate(struct inode *inode)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
 	handle_t *handle;
@@ -439,10 +439,10 @@ int pxt4_pxt2t_migrate(struct inode *inode)
 	uid_t owner[2];
 
 	/*
-	 * If the filesystem does not support pxt2tents, or the inode
-	 * already is pxt2tent-based, error out.
+	 * If the filesystem does not support extents, or the inode
+	 * already is extent-based, error out.
 	 */
-	if (!pxt4_has_feature_pxt2tents(inode->i_sb) ||
+	if (!pxt4_has_feature_extents(inode->i_sb) ||
 	    (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)))
 		return -EINVAL;
 
@@ -484,7 +484,7 @@ int pxt4_pxt2t_migrate(struct inode *inode)
 	 */
 	clear_nlink(tmp_inode);
 
-	pxt4_pxt2t_tree_init(handle, tmp_inode);
+	pxt4_ext_tree_init(handle, tmp_inode);
 	pxt4_orphan_add(handle, tmp_inode);
 	pxt4_journal_stop(handle);
 
@@ -494,10 +494,10 @@ int pxt4_pxt2t_migrate(struct inode *inode)
 	 *
 	 * For the tmp_inode we already have committed the
 	 * transaction that created the inode. Later as and
-	 * when we add pxt2tents we pxt2tent the journal
+	 * when we add extents we extent the journal
 	 */
 	/*
-	 * Even though we take i_mutpxt2 we can still cause block
+	 * Even though we take i_mutex we can still cause block
 	 * allocation via mmap write to holes. If we have allocated
 	 * new blocks we fail migrate.  New block allocation will
 	 * clear PXT4_STATE_EXT_MIGRATE flag.  The flag is updated
@@ -528,7 +528,7 @@ int pxt4_pxt2t_migrate(struct inode *inode)
 	max_entries = inode->i_sb->s_blocksize >> 2;
 	for (i = 0; i < PXT4_NDIR_BLOCKS; i++) {
 		if (i_data[i]) {
-			retval = update_pxt2tent_range(handle, tmp_inode,
+			retval = update_extent_range(handle, tmp_inode,
 						le32_to_cpu(i_data[i]), &lb);
 			if (retval)
 				goto err_out;
@@ -536,48 +536,48 @@ int pxt4_pxt2t_migrate(struct inode *inode)
 			lb.curr_block++;
 	}
 	if (i_data[PXT4_IND_BLOCK]) {
-		retval = update_ind_pxt2tent_range(handle, tmp_inode,
+		retval = update_ind_extent_range(handle, tmp_inode,
 				le32_to_cpu(i_data[PXT4_IND_BLOCK]), &lb);
 		if (retval)
 			goto err_out;
 	} else
 		lb.curr_block += max_entries;
 	if (i_data[PXT4_DIND_BLOCK]) {
-		retval = update_dind_pxt2tent_range(handle, tmp_inode,
+		retval = update_dind_extent_range(handle, tmp_inode,
 				le32_to_cpu(i_data[PXT4_DIND_BLOCK]), &lb);
 		if (retval)
 			goto err_out;
 	} else
 		lb.curr_block += max_entries * max_entries;
 	if (i_data[PXT4_TIND_BLOCK]) {
-		retval = update_tind_pxt2tent_range(handle, tmp_inode,
+		retval = update_tind_extent_range(handle, tmp_inode,
 				le32_to_cpu(i_data[PXT4_TIND_BLOCK]), &lb);
 		if (retval)
 			goto err_out;
 	}
 	/*
-	 * Build the last pxt2tent
+	 * Build the last extent
 	 */
 	retval = finish_range(handle, tmp_inode, &lb);
 err_out:
 	if (retval)
 		/*
-		 * Failure case delete the pxt2tent information with the
+		 * Failure case delete the extent information with the
 		 * tmp_inode
 		 */
-		free_pxt2t_block(handle, tmp_inode);
+		free_ext_block(handle, tmp_inode);
 	else {
-		retval = pxt4_pxt2t_swap_inode_data(handle, inode, tmp_inode);
+		retval = pxt4_ext_swap_inode_data(handle, inode, tmp_inode);
 		if (retval)
 			/*
-			 * if we fail to swap inode data free the pxt2tent
+			 * if we fail to swap inode data free the extent
 			 * details of the tmp inode
 			 */
-			free_pxt2t_block(handle, tmp_inode);
+			free_ext_block(handle, tmp_inode);
 	}
 
-	/* We mark the tmp_inode dirty via pxt4_pxt2t_tree_init. */
-	if (pxt4_journal_pxt2tend(handle, 1) != 0)
+	/* We mark the tmp_inode dirty via pxt4_ext_tree_init. */
+	if (pxt4_journal_extend(handle, 1) != 0)
 		pxt4_journal_restart(handle, 1);
 
 	/*
@@ -595,8 +595,8 @@ err_out:
 	 */
 	tmp_inode->i_blocks = 0;
 
-	/* Reset the pxt2tent details */
-	pxt4_pxt2t_tree_init(handle, tmp_inode);
+	/* Reset the extent details */
+	pxt4_ext_tree_init(handle, tmp_inode);
 	pxt4_journal_stop(handle);
 out_tmp_inode:
 	unlock_new_inode(tmp_inode);
@@ -607,22 +607,22 @@ out_unlock:
 }
 
 /*
- * Migrate a simple pxt2tent-based inode to use the i_blocks[] array
+ * Migrate a simple extent-based inode to use the i_blocks[] array
  */
 int pxt4_ind_migrate(struct inode *inode)
 {
-	struct pxt4_pxt2tent_header	*eh;
+	struct pxt4_extent_header	*eh;
 	struct pxt4_sb_info		*sbi = PXT4_SB(inode->i_sb);
 	struct pxt4_super_block		*es = sbi->s_es;
 	struct pxt4_inode_info		*ei = PXT4_I(inode);
-	struct pxt4_pxt2tent		*pxt2;
+	struct pxt4_extent		*ex;
 	unsigned int			i, len;
 	pxt4_lblk_t			start, end;
 	pxt4_fsblk_t			blk;
 	handle_t			*handle;
 	int				ret;
 
-	if (!pxt4_has_feature_pxt2tents(inode->i_sb) ||
+	if (!pxt4_has_feature_extents(inode->i_sb) ||
 	    (!pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)))
 		return -EINVAL;
 
@@ -630,9 +630,9 @@ int pxt4_ind_migrate(struct inode *inode)
 		return -EOPNOTSUPP;
 
 	/*
-	 * In order to get correct pxt2tent info, force all delayed allocation
+	 * In order to get correct extent info, force all delayed allocation
 	 * blocks to be allocated, otherwise delayed allocation blocks may not
-	 * be reflected and bypass the checks on pxt2tent header.
+	 * be reflected and bypass the checks on extent header.
 	 */
 	if (test_opt(inode->i_sb, DELALLOC))
 		pxt4_alloc_da_blocks(inode);
@@ -646,12 +646,12 @@ int pxt4_ind_migrate(struct inode *inode)
 	}
 
 	down_write(&PXT4_I(inode)->i_data_sem);
-	ret = pxt4_pxt2t_check_inode(inode);
+	ret = pxt4_ext_check_inode(inode);
 	if (ret)
 		goto errout;
 
-	eh = pxt2t_inode_hdr(inode);
-	pxt2  = EXT_FIRST_EXTENT(eh);
+	eh = ext_inode_hdr(inode);
+	ex  = EXT_FIRST_EXTENT(eh);
 	if (pxt4_blocks_count(es) > PXT4_MAX_BLOCK_FILE_PHYS ||
 	    eh->eh_depth != 0 || le16_to_cpu(eh->eh_entries) > 1) {
 		ret = -EOPNOTSUPP;
@@ -660,9 +660,9 @@ int pxt4_ind_migrate(struct inode *inode)
 	if (eh->eh_entries == 0)
 		blk = len = start = end = 0;
 	else {
-		len = le16_to_cpu(pxt2->ee_len);
-		blk = pxt4_pxt2t_pblock(pxt2);
-		start = le32_to_cpu(pxt2->ee_block);
+		len = le16_to_cpu(ex->ee_len);
+		blk = pxt4_ext_pblock(ex);
+		start = le32_to_cpu(ex->ee_block);
 		end = start + len - 1;
 		if (end >= PXT4_NDIR_BLOCKS) {
 			ret = -EOPNOTSUPP;

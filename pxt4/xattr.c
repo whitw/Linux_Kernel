@@ -10,7 +10,7 @@
  *  suggestion of Luka Renko <luka.renko@hermes.si>.
  * xattr consolidation Copyright (c) 2004 James Morris <jmorris@redhat.com>,
  *  Red Hat Inc.
- * ea-in-inode support by Alpxt2 Tomas <alpxt2@clusterfs.com> aka bzzz
+ * ea-in-inode support by Alex Tomas <alex@clusterfs.com> aka bzzz
  *  and Andreas Gruenbacher <agruen@suse.de>.
  */
 
@@ -45,7 +45,7 @@
  * Locking strategy
  * ----------------
  * PXT4_I(inode)->i_file_acl is protected by PXT4_I(inode)->xattr_sem.
- * EA blocks are only changed if they are pxt2clusive to an inode, so
+ * EA blocks are only changed if they are exclusive to an inode, so
  * holding xattr_sem also means that nothing but the EA block's reference
  * count can change. Multiple writers to the same block are synchronized
  * by the buffer lock.
@@ -115,7 +115,7 @@ const struct xattr_handler *pxt4_xattr_handlers[] = {
 				inode->i_sb->s_fs_info)->s_ea_inode_cache)
 
 static int
-pxt4_pxt2pand_inode_array(struct pxt4_xattr_inode_array **ea_inode_array,
+pxt4_expand_inode_array(struct pxt4_xattr_inode_array **ea_inode_array,
 			struct inode *inode);
 
 #ifdef CONFIG_LOCKDEP
@@ -170,12 +170,12 @@ static void pxt4_xattr_block_csum_set(struct inode *inode,
 }
 
 static inline const struct xattr_handler *
-pxt4_xattr_handler(int name_indpxt2)
+pxt4_xattr_handler(int name_index)
 {
 	const struct xattr_handler *handler = NULL;
 
-	if (name_indpxt2 > 0 && name_indpxt2 < ARRAY_SIZE(pxt4_xattr_handler_map))
-		handler = pxt4_xattr_handler_map[name_indpxt2];
+	if (name_index > 0 && name_index < ARRAY_SIZE(pxt4_xattr_handler_map))
+		handler = pxt4_xattr_handler_map[name_index];
 	return handler;
 }
 
@@ -187,12 +187,12 @@ pxt4_xattr_check_entries(struct pxt4_xattr_entry *entry, void *end,
 
 	/* Find the end of the names list */
 	while (!IS_LAST_ENTRY(e)) {
-		struct pxt4_xattr_entry *npxt2t = PXT4_XATTR_NEXT(e);
-		if ((void *)npxt2t >= end)
+		struct pxt4_xattr_entry *next = PXT4_XATTR_NEXT(e);
+		if ((void *)next >= end)
 			return -EFSCORRUPTED;
 		if (strnlen(e->e_name, e->e_name_len) != e->e_name_len)
 			return -EFSCORRUPTED;
-		e = npxt2t;
+		e = next;
 	}
 
 	/* Check the values */
@@ -208,7 +208,7 @@ pxt4_xattr_check_entries(struct pxt4_xattr_entry *entry, void *end,
 
 			/*
 			 * The value cannot overlap the names, and the value
-			 * with padding cannot pxt2tend beyond 'end'.  Check both
+			 * with padding cannot extend beyond 'end'.  Check both
 			 * the padded and unpadded sizes, since the size may
 			 * overflow to 0 when adding padding.
 			 */
@@ -279,22 +279,22 @@ errout:
 
 static int
 xattr_find_entry(struct inode *inode, struct pxt4_xattr_entry **pentry,
-		 void *end, int name_indpxt2, const char *name, int sorted)
+		 void *end, int name_index, const char *name, int sorted)
 {
-	struct pxt4_xattr_entry *entry, *npxt2t;
+	struct pxt4_xattr_entry *entry, *next;
 	size_t name_len;
 	int cmp = 1;
 
 	if (name == NULL)
 		return -EINVAL;
 	name_len = strlen(name);
-	for (entry = *pentry; !IS_LAST_ENTRY(entry); entry = npxt2t) {
-		npxt2t = PXT4_XATTR_NEXT(entry);
-		if ((void *) npxt2t >= end) {
+	for (entry = *pentry; !IS_LAST_ENTRY(entry); entry = next) {
+		next = PXT4_XATTR_NEXT(entry);
+		if ((void *) next >= end) {
 			PXT4_ERROR_INODE(inode, "corrupted xattr entries");
 			return -EFSCORRUPTED;
 		}
-		cmp = name_indpxt2 - entry->e_name_indpxt2;
+		cmp = name_index - entry->e_name_index;
 		if (!cmp)
 			cmp = name_len - entry->e_name_len;
 		if (!cmp)
@@ -509,7 +509,7 @@ out:
 }
 
 static int
-pxt4_xattr_block_get(struct inode *inode, int name_indpxt2, const char *name,
+pxt4_xattr_block_get(struct inode *inode, int name_index, const char *name,
 		     void *buffer, size_t buffer_size)
 {
 	struct buffer_head *bh = NULL;
@@ -520,7 +520,7 @@ pxt4_xattr_block_get(struct inode *inode, int name_indpxt2, const char *name,
 	struct mb_cache *ea_block_cache = EA_BLOCK_CACHE(inode);
 
 	ea_idebug(inode, "name=%d.%s, buffer=%p, buffer_size=%ld",
-		  name_indpxt2, name, buffer, (long)buffer_size);
+		  name_index, name, buffer, (long)buffer_size);
 
 	if (!PXT4_I(inode)->i_file_acl)
 		return -ENODATA;
@@ -537,7 +537,7 @@ pxt4_xattr_block_get(struct inode *inode, int name_indpxt2, const char *name,
 	pxt4_xattr_block_cache_insert(ea_block_cache, bh);
 	entry = BFIRST(bh);
 	end = bh->b_data + bh->b_size;
-	error = xattr_find_entry(inode, &entry, end, name_indpxt2, name, 1);
+	error = xattr_find_entry(inode, &entry, end, name_index, name, 1);
 	if (error)
 		goto cleanup;
 	size = le32_to_cpu(entry->e_value_size);
@@ -569,7 +569,7 @@ cleanup:
 }
 
 int
-pxt4_xattr_ibody_get(struct inode *inode, int name_indpxt2, const char *name,
+pxt4_xattr_ibody_get(struct inode *inode, int name_index, const char *name,
 		     void *buffer, size_t buffer_size)
 {
 	struct pxt4_xattr_ibody_header *header;
@@ -592,7 +592,7 @@ pxt4_xattr_ibody_get(struct inode *inode, int name_indpxt2, const char *name,
 	if (error)
 		goto cleanup;
 	entry = IFIRST(header);
-	error = xattr_find_entry(inode, &entry, end, name_indpxt2, name, 0);
+	error = xattr_find_entry(inode, &entry, end, name_index, name, 0);
 	if (error)
 		goto cleanup;
 	size = le32_to_cpu(entry->e_value_size);
@@ -626,7 +626,7 @@ cleanup:
 /*
  * pxt4_xattr_get()
  *
- * Copy an pxt2tended attribute into the buffer
+ * Copy an extended attribute into the buffer
  * provided, or compute the buffer size required.
  * Buffer is NULL to compute the size of the buffer required.
  *
@@ -634,7 +634,7 @@ cleanup:
  * used / required on success.
  */
 int
-pxt4_xattr_get(struct inode *inode, int name_indpxt2, const char *name,
+pxt4_xattr_get(struct inode *inode, int name_index, const char *name,
 	       void *buffer, size_t buffer_size)
 {
 	int error;
@@ -646,10 +646,10 @@ pxt4_xattr_get(struct inode *inode, int name_indpxt2, const char *name,
 		return -ERANGE;
 
 	down_read(&PXT4_I(inode)->xattr_sem);
-	error = pxt4_xattr_ibody_get(inode, name_indpxt2, name, buffer,
+	error = pxt4_xattr_ibody_get(inode, name_index, name, buffer,
 				     buffer_size);
 	if (error == -ENODATA)
-		error = pxt4_xattr_block_get(inode, name_indpxt2, name, buffer,
+		error = pxt4_xattr_block_get(inode, name_index, name, buffer,
 					     buffer_size);
 	up_read(&PXT4_I(inode)->xattr_sem);
 	return error;
@@ -663,7 +663,7 @@ pxt4_xattr_list_entries(struct dentry *dentry, struct pxt4_xattr_entry *entry,
 
 	for (; !IS_LAST_ENTRY(entry); entry = PXT4_XATTR_NEXT(entry)) {
 		const struct xattr_handler *handler =
-			pxt4_xattr_handler(entry->e_name_indpxt2);
+			pxt4_xattr_handler(entry->e_name_index);
 
 		if (handler && (!handler->list || handler->list(dentry))) {
 			const char *prefix = handler->prefix ?: handler->name;
@@ -926,7 +926,7 @@ int __pxt4_xattr_set_credits(struct super_block *sb, struct inode *inode,
 	/* Data blocks. */
 	blocks = (value_len + sb->s_blocksize - 1) >> sb->s_blocksize_bits;
 
-	/* Indirection block or one level of pxt2tent tree. */
+	/* Indirection block or one level of extent tree. */
 	blocks += 1;
 
 	/* Block bitmap and group descriptor updates for each block. */
@@ -944,7 +944,7 @@ int __pxt4_xattr_set_credits(struct super_block *sb, struct inode *inode,
 		/* Data blocks for old ea_inode. */
 		blocks = XATTR_SIZE_MAX >> sb->s_blocksize_bits;
 
-		/* Indirection block or one level of pxt2tent tree for old
+		/* Indirection block or one level of extent tree for old
 		 * ea_inode.
 		 */
 		blocks += 1;
@@ -953,8 +953,8 @@ int __pxt4_xattr_set_credits(struct super_block *sb, struct inode *inode,
 		credits += blocks * 2;
 	}
 
-	/* We may need to clone the pxt2isting xattr block in which case we need
-	 * to increment ref counts for pxt2isting ea_inodes referenced by it.
+	/* We may need to clone the existing xattr block in which case we need
+	 * to increment ref counts for existing ea_inodes referenced by it.
 	 */
 	if (block_bh) {
 		struct pxt4_xattr_entry *entry = BFIRST(block_bh);
@@ -979,7 +979,7 @@ static int pxt4_xattr_ensure_credits(handle_t *handle, struct inode *inode,
 	if (handle->h_buffer_credits >= credits)
 		return 0;
 
-	error = pxt4_journal_pxt2tend(handle, credits - handle->h_buffer_credits);
+	error = pxt4_journal_extend(handle, credits - handle->h_buffer_credits);
 	if (!error)
 		return 0;
 	if (error < 0) {
@@ -1154,7 +1154,7 @@ pxt4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 			     struct buffer_head *bh,
 			     struct pxt4_xattr_entry *first, bool block_csum,
 			     struct pxt4_xattr_inode_array **ea_inode_array,
-			     int pxt2tra_credits, bool skip_quota)
+			     int extra_credits, bool skip_quota)
 {
 	struct inode *ea_inode;
 	struct pxt4_xattr_entry *entry;
@@ -1164,7 +1164,7 @@ pxt4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 	int credits;
 
 	/* One credit for dec ref on ea_inode, one for orphan list addition, */
-	credits = 2 + pxt2tra_credits;
+	credits = 2 + extra_credits;
 
 	for (entry = first; !IS_LAST_ENTRY(entry);
 	     entry = PXT4_XATTR_NEXT(entry)) {
@@ -1177,7 +1177,7 @@ pxt4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 		if (err)
 			continue;
 
-		err = pxt4_pxt2pand_inode_array(ea_inode_array, ea_inode);
+		err = pxt4_expand_inode_array(ea_inode_array, ea_inode);
 		if (err) {
 			pxt4_warning_inode(ea_inode,
 					   "Expand inode array err=%d", err);
@@ -1219,7 +1219,7 @@ pxt4_xattr_inode_dec_ref_all(handle_t *handle, struct inode *parent,
 	if (dirty) {
 		/*
 		 * Note that we are deliberately skipping csum calculation for
-		 * the final update because we do not pxt2pect any journal
+		 * the final update because we do not expect any journal
 		 * restarts until xattr block is freed.
 		 */
 
@@ -1238,7 +1238,7 @@ static void
 pxt4_xattr_release_block(handle_t *handle, struct inode *inode,
 			 struct buffer_head *bh,
 			 struct pxt4_xattr_inode_array **ea_inode_array,
-			 int pxt2tra_credits)
+			 int extra_credits)
 {
 	struct mb_cache *ea_block_cache = EA_BLOCK_CACHE(inode);
 	u32 hash, ref;
@@ -1269,7 +1269,7 @@ pxt4_xattr_release_block(handle_t *handle, struct inode *inode,
 						     BFIRST(bh),
 						     true /* block_csum */,
 						     ea_inode_array,
-						     pxt2tra_credits,
+						     extra_credits,
 						     true /* skip_quota */);
 		pxt4_free_blocks(handle, inode, bh, 0, 1,
 				 PXT4_FREE_BLOCKS_METADATA |
@@ -1424,7 +1424,7 @@ static struct inode *pxt4_xattr_inode_create(handle_t *handle,
 	int err;
 
 	/*
-	 * Let the npxt2t inode be the goal, so we try and allocate the EA inode
+	 * Let the next inode be the goal, so we try and allocate the EA inode
 	 * in the same group, or nearby one.
 	 */
 	ea_inode = pxt4_new_inode(handle, inode->i_sb->s_root->d_inode,
@@ -1501,7 +1501,7 @@ pxt4_xattr_inode_cache_find(struct inode *inode, const void *value,
 
 		if (!IS_ERR(ea_inode))
 			iput(ea_inode);
-		ce = mb_cache_entry_find_npxt2t(ea_inode_cache, ce);
+		ce = mb_cache_entry_find_next(ea_inode_cache, ce);
 	}
 	kvfree(ea_data);
 	return NULL;
@@ -1562,7 +1562,7 @@ static int pxt4_xattr_set_entry(struct pxt4_xattr_info *i,
 				handle_t *handle, struct inode *inode,
 				bool is_block)
 {
-	struct pxt4_xattr_entry *last, *npxt2t;
+	struct pxt4_xattr_entry *last, *next;
 	struct pxt4_xattr_entry *here = s->here;
 	size_t min_offs = s->end - s->base, name_len = strlen(i->name);
 	int in_inode = i->in_inode;
@@ -1578,7 +1578,7 @@ static int pxt4_xattr_set_entry(struct pxt4_xattr_info *i,
 
 	/*
 	 * Optimization for the simple case when old and new values have the
-	 * same padded sizes. Not applicable if pxt2ternal inodes are involved.
+	 * same padded sizes. Not applicable if external inodes are involved.
 	 */
 	if (new_size && new_size == old_size) {
 		size_t offs = le16_to_cpu(here->e_value_offs);
@@ -1597,9 +1597,9 @@ static int pxt4_xattr_set_entry(struct pxt4_xattr_info *i,
 
 	/* Compute min_offs and last. */
 	last = s->first;
-	for (; !IS_LAST_ENTRY(last); last = npxt2t) {
-		npxt2t = PXT4_XATTR_NEXT(last);
-		if ((void *)npxt2t >= s->end) {
+	for (; !IS_LAST_ENTRY(last); last = next) {
+		next = PXT4_XATTR_NEXT(last);
+		if ((void *)next >= s->end) {
 			PXT4_ERROR_INODE(inode, "corrupted xattr entries");
 			ret = -EFSCORRUPTED;
 			goto out;
@@ -1625,8 +1625,8 @@ static int pxt4_xattr_set_entry(struct pxt4_xattr_info *i,
 		}
 
 		/*
-		 * If storing the value in an pxt2ternal inode is an option,
-		 * reserve space for xattr entries/names in the pxt2ternal
+		 * If storing the value in an external inode is an option,
+		 * reserve space for xattr entries/names in the external
 		 * attribute block so that a long value does not occupy the
 		 * whole space and prevent futher entries being added.
 		 */
@@ -1733,7 +1733,7 @@ static int pxt4_xattr_set_entry(struct pxt4_xattr_info *i,
 
 		memmove((void *)here + size, here, rest);
 		memset(here, 0, size);
-		here->e_name_indpxt2 = i->name_indpxt2;
+		here->e_name_index = i->name_index;
 		here->e_name_len = name_len;
 		memcpy(here->e_name, i->name, name_len);
 	} else {
@@ -1815,10 +1815,10 @@ pxt4_xattr_block_find(struct inode *inode, struct pxt4_xattr_info *i,
 	int error;
 
 	ea_idebug(inode, "name=%d.%s, value=%p, value_len=%ld",
-		  i->name_indpxt2, i->name, i->value, (long)i->value_len);
+		  i->name_index, i->name, i->value, (long)i->value_len);
 
 	if (PXT4_I(inode)->i_file_acl) {
-		/* The inode already has an pxt2tended attribute block. */
+		/* The inode already has an extended attribute block. */
 		bs->bh = pxt4_sb_bread(sb, PXT4_I(inode)->i_file_acl, REQ_PRIO);
 		if (IS_ERR(bs->bh)) {
 			error = PTR_ERR(bs->bh);
@@ -1837,7 +1837,7 @@ pxt4_xattr_block_find(struct inode *inode, struct pxt4_xattr_info *i,
 		bs->s.end = bs->bh->b_data + bs->bh->b_size;
 		bs->s.here = bs->s.first;
 		error = xattr_find_entry(inode, &bs->s.here, bs->s.end,
-					 i->name_indpxt2, i->name, 1);
+					 i->name_index, i->name, 1);
 		if (error && error != -ENODATA)
 			return error;
 		bs->s.not_found = error;
@@ -1912,7 +1912,7 @@ pxt4_xattr_block_set(handle_t *handle, struct inode *inode,
 			s->end = s->base + bs->bh->b_size;
 
 			/*
-			 * If pxt2isting entry points to an xattr inode, we need
+			 * If existing entry points to an xattr inode, we need
 			 * to prevent pxt4_xattr_set_entry() from decrementing
 			 * ref count on it because the reference belongs to the
 			 * original block. In this case, make the entry look
@@ -1966,7 +1966,7 @@ pxt4_xattr_block_set(handle_t *handle, struct inode *inode,
 		/*
 		 * A ref count on ea_inode has been taken as part of the call to
 		 * pxt4_xattr_set_entry() above. We would like to drop this
-		 * pxt2tra ref but we have to wait until the xattr block is
+		 * extra ref but we have to wait until the xattr block is
 		 * initialized and has its own ref count on the ea_inode.
 		 */
 		ea_ino = le32_to_cpu(s->here->e_value_inum);
@@ -2064,7 +2064,7 @@ inserted:
 			goal = pxt4_group_first_block_no(sb,
 						PXT4_I(inode)->i_block_group);
 
-			/* non-pxt2tent files can't have physical blocks past 2^32 */
+			/* non-extent files can't have physical blocks past 2^32 */
 			if (!(pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS)))
 				goal = goal & PXT4_MAX_BLOCK_FILE_PHYS;
 
@@ -2092,7 +2092,7 @@ getblk_failed:
 			if (error)
 				goto getblk_failed;
 			if (ea_inode) {
-				/* Drop the pxt2tra ref on ea_inode. */
+				/* Drop the extra ref on ea_inode. */
 				error = pxt4_xattr_inode_dec_ref(handle,
 								 ea_inode);
 				if (error)
@@ -2134,7 +2134,7 @@ getblk_failed:
 
 		pxt4_xattr_release_block(handle, inode, bs->bh,
 					 &ea_inode_array,
-					 0 /* pxt2tra_credits */);
+					 0 /* extra_credits */);
 		pxt4_xattr_inode_array_free(ea_inode_array);
 	}
 	error = 0;
@@ -2181,7 +2181,7 @@ int pxt4_xattr_ibody_find(struct inode *inode, struct pxt4_xattr_info *i,
 	struct pxt4_inode *raw_inode;
 	int error;
 
-	if (PXT4_I(inode)->i_pxt2tra_isize == 0)
+	if (PXT4_I(inode)->i_extra_isize == 0)
 		return 0;
 	raw_inode = pxt4_raw_inode(&is->iloc);
 	header = IHDR(inode, raw_inode);
@@ -2194,7 +2194,7 @@ int pxt4_xattr_ibody_find(struct inode *inode, struct pxt4_xattr_info *i,
 			return error;
 		/* Find the named attribute. */
 		error = xattr_find_entry(inode, &is->s.here, is->s.end,
-					 i->name_indpxt2, i->name, 0);
+					 i->name_index, i->name, 0);
 		if (error && error != -ENODATA)
 			return error;
 		is->s.not_found = error;
@@ -2210,7 +2210,7 @@ int pxt4_xattr_ibody_inline_set(handle_t *handle, struct inode *inode,
 	struct pxt4_xattr_search *s = &is->s;
 	int error;
 
-	if (PXT4_I(inode)->i_pxt2tra_isize == 0)
+	if (PXT4_I(inode)->i_extra_isize == 0)
 		return -ENOSPC;
 	error = pxt4_xattr_set_entry(i, s, handle, inode, false /* is_block */);
 	if (error)
@@ -2234,7 +2234,7 @@ static int pxt4_xattr_ibody_set(handle_t *handle, struct inode *inode,
 	struct pxt4_xattr_search *s = &is->s;
 	int error;
 
-	if (PXT4_I(inode)->i_pxt2tra_isize == 0)
+	if (PXT4_I(inode)->i_extra_isize == 0)
 		return -ENOSPC;
 	error = pxt4_xattr_set_entry(i, s, handle, inode, false /* is_block */);
 	if (error)
@@ -2255,7 +2255,7 @@ static int pxt4_xattr_value_same(struct pxt4_xattr_search *s,
 {
 	void *value;
 
-	/* When e_value_inum is set the value is stored pxt2ternally. */
+	/* When e_value_inum is set the value is stored externally. */
 	if (s->here->e_value_inum)
 		return 0;
 	if (le32_to_cpu(s->here->e_value_size) != i->value_len)
@@ -2285,22 +2285,22 @@ static struct buffer_head *pxt4_xattr_get_block(struct inode *inode)
 /*
  * pxt4_xattr_set_handle()
  *
- * Create, replace or remove an pxt2tended attribute for this inode.  Value
- * is NULL to remove an pxt2isting pxt2tended attribute, and non-NULL to
- * either replace an pxt2isting pxt2tended attribute, or create a new pxt2tended
+ * Create, replace or remove an extended attribute for this inode.  Value
+ * is NULL to remove an existing extended attribute, and non-NULL to
+ * either replace an existing extended attribute, or create a new extended
  * attribute. The flags XATTR_REPLACE and XATTR_CREATE
- * specify that an pxt2tended attribute must pxt2ist and must not pxt2ist
+ * specify that an extended attribute must exist and must not exist
  * previous to the call, respectively.
  *
  * Returns 0, or a negative error number on failure.
  */
 int
-pxt4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_indpxt2,
+pxt4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_index,
 		      const char *name, const void *value, size_t value_len,
 		      int flags)
 {
 	struct pxt4_xattr_info i = {
-		.name_indpxt2 = name_indpxt2,
+		.name_index = name_index,
 		.name = name,
 		.value = value,
 		.value_len = value_len,
@@ -2312,7 +2312,7 @@ pxt4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_indpxt2,
 	struct pxt4_xattr_block_find bs = {
 		.s = { .not_found = -ENODATA, },
 	};
-	int no_pxt2pand;
+	int no_expand;
 	int error;
 
 	if (!name)
@@ -2320,7 +2320,7 @@ pxt4_xattr_set_handle(handle_t *handle, struct inode *inode, int name_indpxt2,
 	if (strlen(name) > 255)
 		return -ERANGE;
 
-	pxt4_write_lock_xattr(inode, &no_pxt2pand);
+	pxt4_write_lock_xattr(inode, &no_expand);
 
 	/* Check journal credits under write lock. */
 	if (pxt4_handle_valid(handle)) {
@@ -2412,7 +2412,7 @@ retry_inode:
 			} else if (error == -ENOSPC) {
 				/*
 				 * Xattr does not fit in the block, store at
-				 * pxt2ternal inode if possible.
+				 * external inode if possible.
 				 */
 				if (pxt4_has_feature_ea_inode(inode->i_sb) &&
 				    !i.in_inode) {
@@ -2426,7 +2426,7 @@ retry_inode:
 		pxt4_xattr_update_super_block(handle, inode->i_sb);
 		inode->i_ctime = current_time(inode);
 		if (!value)
-			no_pxt2pand = 0;
+			no_expand = 0;
 		error = pxt4_mark_iloc_dirty(handle, inode, &is.iloc);
 		/*
 		 * The bh is consumed by pxt4_mark_iloc_dirty, even with
@@ -2440,7 +2440,7 @@ retry_inode:
 cleanup:
 	brelse(is.iloc.bh);
 	brelse(bs.bh);
-	pxt4_write_unlock_xattr(inode, &no_pxt2pand);
+	pxt4_write_unlock_xattr(inode, &no_expand);
 	return error;
 }
 
@@ -2474,13 +2474,13 @@ int pxt4_xattr_set_credits(struct inode *inode, size_t value_len,
 /*
  * pxt4_xattr_set()
  *
- * Like pxt4_xattr_set_handle, but start from an inode. This pxt2tended
+ * Like pxt4_xattr_set_handle, but start from an inode. This extended
  * attribute modification is a filesystem transaction by itself.
  *
  * Returns 0, or a negative error number on failure.
  */
 int
-pxt4_xattr_set(struct inode *inode, int name_indpxt2, const char *name,
+pxt4_xattr_set(struct inode *inode, int name_index, const char *name,
 	       const void *value, size_t value_len, int flags)
 {
 	handle_t *handle;
@@ -2504,7 +2504,7 @@ retry:
 	} else {
 		int error2;
 
-		error = pxt4_xattr_set_handle(handle, inode, name_indpxt2, name,
+		error = pxt4_xattr_set_handle(handle, inode, name_index, name,
 					      value, value_len, flags);
 		error2 = pxt4_journal_stop(handle);
 		if (error == -ENOSPC &&
@@ -2519,7 +2519,7 @@ retry:
 
 /*
  * Shift the EA entries in the inode to create space for the increased
- * i_pxt2tra_isize.
+ * i_extra_isize.
  */
 static void pxt4_xattr_shift_entries(struct pxt4_xattr_entry *entry,
 				     int value_offs_shift, void *to,
@@ -2544,7 +2544,7 @@ static void pxt4_xattr_shift_entries(struct pxt4_xattr_entry *entry,
 }
 
 /*
- * Move xattr pointed to by 'entry' from inode into pxt2ternal xattr block
+ * Move xattr pointed to by 'entry' from inode into external xattr block
  */
 static int pxt4_xattr_move_to_block(handle_t *handle, struct inode *inode,
 				    struct pxt4_inode *raw_inode,
@@ -2557,7 +2557,7 @@ static int pxt4_xattr_move_to_block(handle_t *handle, struct inode *inode,
 	struct pxt4_xattr_info i = {
 		.value = NULL,
 		.value_len = 0,
-		.name_indpxt2 = entry->e_name_indpxt2,
+		.name_index = entry->e_name_index,
 		.in_inode = !!entry->e_value_inum,
 	};
 	struct pxt4_xattr_ibody_header *header = IHDR(inode, raw_inode);
@@ -2651,7 +2651,7 @@ static int pxt4_xattr_make_inode_space(handle_t *handle, struct inode *inode,
 		for (; !IS_LAST_ENTRY(last); last = PXT4_XATTR_NEXT(last)) {
 			/* never move system.data out of the inode */
 			if ((last->e_name_len == 4) &&
-			    (last->e_name_indpxt2 == PXT4_XATTR_INDEX_SYSTEM) &&
+			    (last->e_name_index == PXT4_XATTR_INDEX_SYSTEM) &&
 			    !memcmp(last->e_name, "data", 4))
 				continue;
 			total_size = PXT4_XATTR_LEN(last->e_name_len);
@@ -2694,10 +2694,10 @@ static int pxt4_xattr_make_inode_space(handle_t *handle, struct inode *inode,
 }
 
 /*
- * Expand an inode by new_pxt2tra_isize bytes when EAs are present.
+ * Expand an inode by new_extra_isize bytes when EAs are present.
  * Returns 0 on success or negative error number on failure.
  */
-int pxt4_pxt2pand_pxt2tra_isize_ea(struct inode *inode, int new_pxt2tra_isize,
+int pxt4_expand_extra_isize_ea(struct inode *inode, int new_extra_isize,
 			       struct pxt4_inode *raw_inode, handle_t *handle)
 {
 	struct pxt4_xattr_ibody_header *header;
@@ -2707,20 +2707,20 @@ int pxt4_pxt2pand_pxt2tra_isize_ea(struct inode *inode, int new_pxt2tra_isize,
 	size_t ifree, bfree;
 	int total_ino;
 	void *base, *end;
-	int error = 0, tried_min_pxt2tra_isize = 0;
-	int s_min_pxt2tra_isize = le16_to_cpu(sbi->s_es->s_min_pxt2tra_isize);
-	int isize_diff;	/* How much do we need to grow i_pxt2tra_isize */
+	int error = 0, tried_min_extra_isize = 0;
+	int s_min_extra_isize = le16_to_cpu(sbi->s_es->s_min_extra_isize);
+	int isize_diff;	/* How much do we need to grow i_extra_isize */
 
 retry:
-	isize_diff = new_pxt2tra_isize - PXT4_I(inode)->i_pxt2tra_isize;
-	if (PXT4_I(inode)->i_pxt2tra_isize >= new_pxt2tra_isize)
+	isize_diff = new_extra_isize - PXT4_I(inode)->i_extra_isize;
+	if (PXT4_I(inode)->i_extra_isize >= new_extra_isize)
 		return 0;
 
 	header = IHDR(inode, raw_inode);
 
 	/*
 	 * Check if enough free space is available in the inode to shift the
-	 * entries ahead by new_pxt2tra_isize.
+	 * entries ahead by new_extra_isize.
 	 */
 
 	base = IFIRST(header);
@@ -2738,7 +2738,7 @@ retry:
 
 	/*
 	 * Enough free space isn't available in the inode, check if
-	 * EA block can hold new_pxt2tra_isize bytes.
+	 * EA block can hold new_extra_isize bytes.
 	 */
 	if (PXT4_I(inode)->i_file_acl) {
 		struct buffer_head *bh;
@@ -2760,9 +2760,9 @@ retry:
 					      NULL);
 		brelse(bh);
 		if (bfree + ifree < isize_diff) {
-			if (!tried_min_pxt2tra_isize && s_min_pxt2tra_isize) {
-				tried_min_pxt2tra_isize++;
-				new_pxt2tra_isize = s_min_pxt2tra_isize;
+			if (!tried_min_extra_isize && s_min_extra_isize) {
+				tried_min_extra_isize++;
+				new_extra_isize = s_min_extra_isize;
 				goto retry;
 			}
 			error = -ENOSPC;
@@ -2776,25 +2776,25 @@ retry:
 					    isize_diff, ifree, bfree,
 					    &total_ino);
 	if (error) {
-		if (error == -ENOSPC && !tried_min_pxt2tra_isize &&
-		    s_min_pxt2tra_isize) {
-			tried_min_pxt2tra_isize++;
-			new_pxt2tra_isize = s_min_pxt2tra_isize;
+		if (error == -ENOSPC && !tried_min_extra_isize &&
+		    s_min_extra_isize) {
+			tried_min_extra_isize++;
+			new_extra_isize = s_min_extra_isize;
 			goto retry;
 		}
 		goto cleanup;
 	}
 shift:
 	/* Adjust the offsets and shift the remaining entries ahead */
-	pxt4_xattr_shift_entries(IFIRST(header), PXT4_I(inode)->i_pxt2tra_isize
-			- new_pxt2tra_isize, (void *)raw_inode +
-			PXT4_GOOD_OLD_INODE_SIZE + new_pxt2tra_isize,
+	pxt4_xattr_shift_entries(IFIRST(header), PXT4_I(inode)->i_extra_isize
+			- new_extra_isize, (void *)raw_inode +
+			PXT4_GOOD_OLD_INODE_SIZE + new_extra_isize,
 			(void *)header, total_ino);
-	PXT4_I(inode)->i_pxt2tra_isize = new_pxt2tra_isize;
+	PXT4_I(inode)->i_extra_isize = new_extra_isize;
 
 cleanup:
 	if (error && (mnt_count != le16_to_cpu(sbi->s_es->s_mnt_count))) {
-		pxt4_warning(inode->i_sb, "Unable to pxt2pand inode %lu. Delete some EAs or run e2fsck.",
+		pxt4_warning(inode->i_sb, "Unable to expand inode %lu. Delete some EAs or run e2fsck.",
 			     inode->i_ino);
 		mnt_count = le16_to_cpu(sbi->s_es->s_mnt_count);
 	}
@@ -2809,7 +2809,7 @@ cleanup:
  * contents copied over.
  */
 static int
-pxt4_pxt2pand_inode_array(struct pxt4_xattr_inode_array **ea_inode_array,
+pxt4_expand_inode_array(struct pxt4_xattr_inode_array **ea_inode_array,
 			struct inode *inode)
 {
 	if (*ea_inode_array == NULL) {
@@ -2825,7 +2825,7 @@ pxt4_pxt2pand_inode_array(struct pxt4_xattr_inode_array **ea_inode_array,
 			return -ENOMEM;
 		(*ea_inode_array)->count = 0;
 	} else if (((*ea_inode_array)->count & EIA_MASK) == EIA_MASK) {
-		/* pxt2pand the array once all 15 + n * 16 slots are full */
+		/* expand the array once all 15 + n * 16 slots are full */
 		struct pxt4_xattr_inode_array *new_array = NULL;
 		int count = (*ea_inode_array)->count;
 
@@ -2848,15 +2848,15 @@ pxt4_pxt2pand_inode_array(struct pxt4_xattr_inode_array **ea_inode_array,
 /*
  * pxt4_xattr_delete_inode()
  *
- * Free pxt2tended attribute resources associated with this inode. Traverse
+ * Free extended attribute resources associated with this inode. Traverse
  * all entries and decrement reference on any xattr inodes associated with this
- * inode. This is called immediately before an inode is freed. We have pxt2clusive
+ * inode. This is called immediately before an inode is freed. We have exclusive
  * access to the inode. If an orphan inode is deleted it will also release its
  * references on xattr block and xattr inodes.
  */
 int pxt4_xattr_delete_inode(handle_t *handle, struct inode *inode,
 			    struct pxt4_xattr_inode_array **ea_inode_array,
-			    int pxt2tra_credits)
+			    int extra_credits)
 {
 	struct buffer_head *bh = NULL;
 	struct pxt4_xattr_ibody_header *header;
@@ -2865,7 +2865,7 @@ int pxt4_xattr_delete_inode(handle_t *handle, struct inode *inode,
 	struct inode *ea_inode;
 	int error;
 
-	error = pxt4_xattr_ensure_credits(handle, inode, pxt2tra_credits,
+	error = pxt4_xattr_ensure_credits(handle, inode, extra_credits,
 					  NULL /* bh */,
 					  false /* dirty */,
 					  false /* block_csum */);
@@ -2896,7 +2896,7 @@ int pxt4_xattr_delete_inode(handle_t *handle, struct inode *inode,
 						     IFIRST(header),
 						     false /* block_csum */,
 						     ea_inode_array,
-						     pxt2tra_credits,
+						     extra_credits,
 						     false /* skip_quota */);
 	}
 
@@ -2933,7 +2933,7 @@ int pxt4_xattr_delete_inode(handle_t *handle, struct inode *inode,
 		}
 
 		pxt4_xattr_release_block(handle, inode, bh, ea_inode_array,
-					 pxt2tra_credits);
+					 extra_credits);
 		/*
 		 * Update i_file_acl value in the same transaction that releases
 		 * block.
@@ -2968,7 +2968,7 @@ void pxt4_xattr_inode_array_free(struct pxt4_xattr_inode_array *ea_inode_array)
 /*
  * pxt4_xattr_block_cache_insert()
  *
- * Create a new entry in the pxt2tended attribute block cache, and insert
+ * Create a new entry in the extended attribute block cache, and insert
  * it unless such an entry is already in the cache.
  *
  * Returns 0, or a negative error number on failure.
@@ -2997,7 +2997,7 @@ pxt4_xattr_block_cache_insert(struct mb_cache *ea_block_cache,
 /*
  * pxt4_xattr_cmp()
  *
- * Compare two pxt2tended attribute blocks for equality.
+ * Compare two extended attribute blocks for equality.
  *
  * Returns 0 if the blocks are equal, 1 if they differ, and
  * a negative error number on errors.
@@ -3014,7 +3014,7 @@ pxt4_xattr_cmp(struct pxt4_xattr_header *header1,
 		if (IS_LAST_ENTRY(entry2))
 			return 1;
 		if (entry1->e_hash != entry2->e_hash ||
-		    entry1->e_name_indpxt2 != entry2->e_name_indpxt2 ||
+		    entry1->e_name_index != entry2->e_name_index ||
 		    entry1->e_name_len != entry2->e_name_len ||
 		    entry1->e_value_size != entry2->e_value_size ||
 		    entry1->e_value_inum != entry2->e_value_inum ||
@@ -3037,7 +3037,7 @@ pxt4_xattr_cmp(struct pxt4_xattr_header *header1,
 /*
  * pxt4_xattr_block_cache_find()
  *
- * Find an identical pxt2tended attribute block.
+ * Find an identical extended attribute block.
  *
  * Returns a pointer to the block found, or NULL if such a block was
  * not found or an error occurred.
@@ -3072,7 +3072,7 @@ pxt4_xattr_block_cache_find(struct inode *inode,
 			return bh;
 		}
 		brelse(bh);
-		ce = mb_cache_entry_find_npxt2t(ea_block_cache, ce);
+		ce = mb_cache_entry_find_next(ea_block_cache, ce);
 	}
 	return NULL;
 }
@@ -3083,7 +3083,7 @@ pxt4_xattr_block_cache_find(struct inode *inode,
 /*
  * pxt4_xattr_hash_entry()
  *
- * Compute the hash of an pxt2tended attribute.
+ * Compute the hash of an extended attribute.
  */
 static __le32 pxt4_xattr_hash_entry(char *name, size_t name_len, __le32 *value,
 				    size_t value_count)
@@ -3111,7 +3111,7 @@ static __le32 pxt4_xattr_hash_entry(char *name, size_t name_len, __le32 *value,
 /*
  * pxt4_xattr_rehash()
  *
- * Re-compute the pxt2tended attribute hash value after an entry has changed.
+ * Re-compute the extended attribute hash value after an entry has changed.
  */
 static void pxt4_xattr_rehash(struct pxt4_xattr_header *header)
 {

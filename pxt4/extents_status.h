@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- *  fs/pxt4/pxt2tents_status.h
+ *  fs/pxt4/extents_status.h
  *
  * Written by Yongqiang Yang <xiaoqiangnk@gmail.com>
  * Modified by
@@ -13,7 +13,7 @@
 #define _PXT4_EXTENTS_STATUS_H
 
 /*
- * Turn on ES_DEBUG__ to get lots of info about pxt2tent status operations.
+ * Turn on ES_DEBUG__ to get lots of info about extent status operations.
  */
 #ifdef ES_DEBUG__
 #define es_debug(fmt, ...)	printk(fmt, ##__VA_ARGS__)
@@ -28,7 +28,7 @@
 #define ES_AGGRESSIVE_TEST__
 
 /*
- * These flags live in the high bits of pxt2tent_status.es_pblk
+ * These flags live in the high bits of extent_status.es_pblk
  */
 enum {
 	ES_WRITTEN_B,
@@ -54,18 +54,18 @@ enum {
 			  EXTENT_STATUS_HOLE) << ES_SHIFT)
 
 struct pxt4_sb_info;
-struct pxt4_pxt2tent;
+struct pxt4_extent;
 
-struct pxt2tent_status {
+struct extent_status {
 	struct rb_node rb_node;
-	pxt4_lblk_t es_lblk;	/* first logical block pxt2tent covers */
-	pxt4_lblk_t es_len;	/* length of pxt2tent in block */
+	pxt4_lblk_t es_lblk;	/* first logical block extent covers */
+	pxt4_lblk_t es_len;	/* length of extent in block */
 	pxt4_fsblk_t es_pblk;	/* first physical block */
 };
 
 struct pxt4_es_tree {
 	struct rb_root root;
-	struct pxt2tent_status *cache_es;	/* recently accessed pxt2tent */
+	struct extent_status *cache_es;	/* recently accessed extent */
 };
 
 struct pxt4_es_stats {
@@ -82,24 +82,24 @@ struct pxt4_es_stats {
  * Pending cluster reservations for bigalloc file systems
  *
  * A cluster with a pending reservation is a logical cluster shared by at
- * least one pxt2tent in the pxt2tents status tree with delayed and unwritten
- * status and at least one other written or unwritten pxt2tent.  The
+ * least one extent in the extents status tree with delayed and unwritten
+ * status and at least one other written or unwritten extent.  The
  * reservation is said to be pending because a cluster reservation would
  * have to be taken in the event all blocks in the cluster shared with
- * written or unwritten pxt2tents were deleted while the delayed and
+ * written or unwritten extents were deleted while the delayed and
  * unwritten blocks remained.
  *
  * The set of pending cluster reservations is an auxiliary data structure
- * used with the pxt2tents status tree to implement reserved cluster/block
+ * used with the extents status tree to implement reserved cluster/block
  * accounting for bigalloc file systems.  The set is kept in memory and
  * records all pending cluster reservations.
  *
- * Its primary function is to avoid the need to read pxt2tents from the
+ * Its primary function is to avoid the need to read extents from the
  * disk when invalidating pages as a result of a truncate, punch hole, or
  * collapse range operation.  Page invalidation requires a decrease in the
  * reserved cluster count if it results in the removal of all delayed
- * and unwritten pxt2tents (blocks) from a cluster that is not shared with a
- * written or unwritten pxt2tent, and no decrease otherwise.  Determining
+ * and unwritten extents (blocks) from a cluster that is not shared with a
+ * written or unwritten extent, and no decrease otherwise.  Determining
  * whether the cluster is shared can be done by searching for a pending
  * reservation on it.
  *
@@ -107,7 +107,7 @@ struct pxt4_es_stats {
  * whether the reserved cluster count should be increased when a physical
  * cluster is deallocated as a result of a truncate, punch hole, or
  * collapse range operation.  The necessary information is also present
- * in the pxt2tents status tree, but might be more rapidly accessed in
+ * in the extents status tree, but might be more rapidly accessed in
  * the pending reservation set in many cases due to smaller size.
  *
  * The pending cluster reservation set is implemented as a red-black tree
@@ -123,93 +123,93 @@ struct pxt4_pending_tree {
 	struct rb_root root;
 };
 
-pxt2tern int __init pxt4_init_es(void);
-pxt2tern void pxt4_pxt2it_es(void);
-pxt2tern void pxt4_es_init_tree(struct pxt4_es_tree *tree);
+extern int __init pxt4_init_es(void);
+extern void pxt4_exit_es(void);
+extern void pxt4_es_init_tree(struct pxt4_es_tree *tree);
 
-pxt2tern int pxt4_es_insert_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
+extern int pxt4_es_insert_extent(struct inode *inode, pxt4_lblk_t lblk,
 				 pxt4_lblk_t len, pxt4_fsblk_t pblk,
 				 unsigned int status);
-pxt2tern void pxt4_es_cache_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
+extern void pxt4_es_cache_extent(struct inode *inode, pxt4_lblk_t lblk,
 				 pxt4_lblk_t len, pxt4_fsblk_t pblk,
 				 unsigned int status);
-pxt2tern int pxt4_es_remove_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
+extern int pxt4_es_remove_extent(struct inode *inode, pxt4_lblk_t lblk,
 				 pxt4_lblk_t len);
-pxt2tern void pxt4_es_find_pxt2tent_range(struct inode *inode,
-				      int (*match_fn)(struct pxt2tent_status *es),
+extern void pxt4_es_find_extent_range(struct inode *inode,
+				      int (*match_fn)(struct extent_status *es),
 				      pxt4_lblk_t lblk, pxt4_lblk_t end,
-				      struct pxt2tent_status *es);
-pxt2tern int pxt4_es_lookup_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
-				 pxt4_lblk_t *npxt2t_lblk,
-				 struct pxt2tent_status *es);
-pxt2tern bool pxt4_es_scan_range(struct inode *inode,
-			       int (*matching_fn)(struct pxt2tent_status *es),
+				      struct extent_status *es);
+extern int pxt4_es_lookup_extent(struct inode *inode, pxt4_lblk_t lblk,
+				 pxt4_lblk_t *next_lblk,
+				 struct extent_status *es);
+extern bool pxt4_es_scan_range(struct inode *inode,
+			       int (*matching_fn)(struct extent_status *es),
 			       pxt4_lblk_t lblk, pxt4_lblk_t end);
-pxt2tern bool pxt4_es_scan_clu(struct inode *inode,
-			     int (*matching_fn)(struct pxt2tent_status *es),
+extern bool pxt4_es_scan_clu(struct inode *inode,
+			     int (*matching_fn)(struct extent_status *es),
 			     pxt4_lblk_t lblk);
 
-static inline unsigned int pxt4_es_status(struct pxt2tent_status *es)
+static inline unsigned int pxt4_es_status(struct extent_status *es)
 {
 	return es->es_pblk >> ES_SHIFT;
 }
 
-static inline unsigned int pxt4_es_type(struct pxt2tent_status *es)
+static inline unsigned int pxt4_es_type(struct extent_status *es)
 {
 	return (es->es_pblk & ES_TYPE_MASK) >> ES_SHIFT;
 }
 
-static inline int pxt4_es_is_written(struct pxt2tent_status *es)
+static inline int pxt4_es_is_written(struct extent_status *es)
 {
 	return (pxt4_es_type(es) & EXTENT_STATUS_WRITTEN) != 0;
 }
 
-static inline int pxt4_es_is_unwritten(struct pxt2tent_status *es)
+static inline int pxt4_es_is_unwritten(struct extent_status *es)
 {
 	return (pxt4_es_type(es) & EXTENT_STATUS_UNWRITTEN) != 0;
 }
 
-static inline int pxt4_es_is_delayed(struct pxt2tent_status *es)
+static inline int pxt4_es_is_delayed(struct extent_status *es)
 {
 	return (pxt4_es_type(es) & EXTENT_STATUS_DELAYED) != 0;
 }
 
-static inline int pxt4_es_is_hole(struct pxt2tent_status *es)
+static inline int pxt4_es_is_hole(struct extent_status *es)
 {
 	return (pxt4_es_type(es) & EXTENT_STATUS_HOLE) != 0;
 }
 
-static inline int pxt4_es_is_mapped(struct pxt2tent_status *es)
+static inline int pxt4_es_is_mapped(struct extent_status *es)
 {
 	return (pxt4_es_is_written(es) || pxt4_es_is_unwritten(es));
 }
 
-static inline int pxt4_es_is_delonly(struct pxt2tent_status *es)
+static inline int pxt4_es_is_delonly(struct extent_status *es)
 {
 	return (pxt4_es_is_delayed(es) && !pxt4_es_is_unwritten(es));
 }
 
-static inline void pxt4_es_set_referenced(struct pxt2tent_status *es)
+static inline void pxt4_es_set_referenced(struct extent_status *es)
 {
 	es->es_pblk |= ((pxt4_fsblk_t)EXTENT_STATUS_REFERENCED) << ES_SHIFT;
 }
 
-static inline void pxt4_es_clear_referenced(struct pxt2tent_status *es)
+static inline void pxt4_es_clear_referenced(struct extent_status *es)
 {
 	es->es_pblk &= ~(((pxt4_fsblk_t)EXTENT_STATUS_REFERENCED) << ES_SHIFT);
 }
 
-static inline int pxt4_es_is_referenced(struct pxt2tent_status *es)
+static inline int pxt4_es_is_referenced(struct extent_status *es)
 {
 	return (pxt4_es_status(es) & EXTENT_STATUS_REFERENCED) != 0;
 }
 
-static inline pxt4_fsblk_t pxt4_es_pblock(struct pxt2tent_status *es)
+static inline pxt4_fsblk_t pxt4_es_pblock(struct extent_status *es)
 {
 	return es->es_pblk & ~ES_MASK;
 }
 
-static inline void pxt4_es_store_pblock(struct pxt2tent_status *es,
+static inline void pxt4_es_store_pblock(struct extent_status *es,
 					pxt4_fsblk_t pb)
 {
 	pxt4_fsblk_t block;
@@ -218,14 +218,14 @@ static inline void pxt4_es_store_pblock(struct pxt2tent_status *es,
 	es->es_pblk = block;
 }
 
-static inline void pxt4_es_store_status(struct pxt2tent_status *es,
+static inline void pxt4_es_store_status(struct extent_status *es,
 					unsigned int status)
 {
 	es->es_pblk = (((pxt4_fsblk_t)status << ES_SHIFT) & ES_MASK) |
 		      (es->es_pblk & ~ES_MASK);
 }
 
-static inline void pxt4_es_store_pblock_status(struct pxt2tent_status *es,
+static inline void pxt4_es_store_pblock_status(struct extent_status *es,
 					       pxt4_fsblk_t pb,
 					       unsigned int status)
 {
@@ -233,20 +233,20 @@ static inline void pxt4_es_store_pblock_status(struct pxt2tent_status *es,
 		      (pb & ~ES_MASK);
 }
 
-pxt2tern int pxt4_es_register_shrinker(struct pxt4_sb_info *sbi);
-pxt2tern void pxt4_es_unregister_shrinker(struct pxt4_sb_info *sbi);
+extern int pxt4_es_register_shrinker(struct pxt4_sb_info *sbi);
+extern void pxt4_es_unregister_shrinker(struct pxt4_sb_info *sbi);
 
-pxt2tern int pxt4_seq_es_shrinker_info_show(struct seq_file *seq, void *v);
+extern int pxt4_seq_es_shrinker_info_show(struct seq_file *seq, void *v);
 
-pxt2tern int __init pxt4_init_pending(void);
-pxt2tern void pxt4_pxt2it_pending(void);
-pxt2tern void pxt4_init_pending_tree(struct pxt4_pending_tree *tree);
-pxt2tern void pxt4_remove_pending(struct inode *inode, pxt4_lblk_t lblk);
-pxt2tern bool pxt4_is_pending(struct inode *inode, pxt4_lblk_t lblk);
-pxt2tern int pxt4_es_insert_delayed_block(struct inode *inode, pxt4_lblk_t lblk,
+extern int __init pxt4_init_pending(void);
+extern void pxt4_exit_pending(void);
+extern void pxt4_init_pending_tree(struct pxt4_pending_tree *tree);
+extern void pxt4_remove_pending(struct inode *inode, pxt4_lblk_t lblk);
+extern bool pxt4_is_pending(struct inode *inode, pxt4_lblk_t lblk);
+extern int pxt4_es_insert_delayed_block(struct inode *inode, pxt4_lblk_t lblk,
 					bool allocated);
-pxt2tern unsigned int pxt4_es_delayed_clu(struct inode *inode, pxt4_lblk_t lblk,
+extern unsigned int pxt4_es_delayed_clu(struct inode *inode, pxt4_lblk_t lblk,
 					pxt4_lblk_t len);
-pxt2tern void pxt4_clear_inode_es(struct inode *inode);
+extern void pxt4_clear_inode_es(struct inode *inode);
 
 #endif /* _PXT4_EXTENTS_STATUS_H */

@@ -36,7 +36,7 @@ int __init pxt4_init_system_zone(void)
 	return 0;
 }
 
-void pxt4_pxt2it_system_zone(void)
+void pxt4_exit_system_zone(void)
 {
 	rcu_barrier();
 	kmem_cache_destroy(pxt4_system_zone_cachep);
@@ -79,7 +79,7 @@ static int add_system_zone(struct pxt4_system_blocks *system_blks,
 			n = &(*n)->rb_left;
 		else if (start_blk >= (entry->start_blk + entry->count))
 			n = &(*n)->rb_right;
-		else	/* Unpxt2pected overlap of system zones. */
+		else	/* Unexpected overlap of system zones. */
 			return -EFSCORRUPTED;
 	}
 
@@ -107,7 +107,7 @@ static int add_system_zone(struct pxt4_system_blocks *system_blks,
 	}
 
 	/* Can we merge to the right? */
-	node = rb_npxt2t(new_node);
+	node = rb_next(new_node);
 	if (node) {
 		entry = rb_entry(node, struct pxt4_system_zone, node);
 		if (can_merge(new_entry, entry)) {
@@ -132,7 +132,7 @@ static void debug_print_tree(struct pxt4_sb_info *sbi)
 		printk(KERN_CONT "%s%llu-%llu", first ? "" : ", ",
 		       entry->start_blk, entry->start_blk + entry->count - 1);
 		first = 0;
-		node = rb_npxt2t(node);
+		node = rb_next(node);
 	}
 	printk(KERN_CONT "\n");
 }
@@ -247,7 +247,7 @@ int pxt4_setup_system_zone(struct super_block *sb)
 	struct pxt4_system_blocks *system_blks;
 	struct pxt4_group_desc *gdp;
 	pxt4_group_t i;
-	int flpxt2_size = pxt4_flpxt2_bg_size(sbi);
+	int flex_size = pxt4_flex_bg_size(sbi);
 	int ret;
 
 	system_blks = kzalloc(sizeof(*system_blks), GFP_KERNEL);
@@ -257,7 +257,7 @@ int pxt4_setup_system_zone(struct super_block *sb)
 	for (i=0; i < ngroups; i++) {
 		cond_resched();
 		if (pxt4_bg_has_super(sb, i) &&
-		    ((i < 5) || ((i % flpxt2_size) == 0)))
+		    ((i < 5) || ((i % flex_size) == 0)))
 			add_system_zone(system_blks,
 					pxt4_group_first_block_no(sb, i),
 					pxt4_bg_num_gdb(sb, i) + 1);
@@ -307,7 +307,7 @@ err:
  * sb->s_umount semaphore. However we have to be careful as we can be
  * racing with pxt4_data_block_valid() calls reading system_blks rbtree
  * protected only by RCU. So we first clear the system_blks pointer and
- * then free the rbtree only after RCU grace period pxt2pires.
+ * then free the rbtree only after RCU grace period expires.
  */
 void pxt4_release_system_zone(struct super_block *sb)
 {

@@ -25,8 +25,8 @@
 #include <linux/rwsem.h>
 #include <linux/rbtree.h>
 #include <linux/seqlock.h>
-#include <linux/mutpxt2.h>
-#include <linux/timer.h>
+#include <linux/mutex.h>
+#include <linux/time.h>
 #include <linux/version.h>
 #include <linux/wait.h>
 #include <linux/sched/signal.h>
@@ -46,7 +46,7 @@
 #include <linux/compiler.h>
 
 /*
- * The fourth pxt2tended filesystem constants/structures
+ * The fourth extended filesystem constants/structures
  */
 
 /*
@@ -81,13 +81,13 @@
 #endif
 
 /*
- * Turn on EXT_DEBUG to get lots of info about pxt2tents operations.
+ * Turn on EXT_DEBUG to get lots of info about extents operations.
  */
 #define EXT_DEBUG__
 #ifdef EXT_DEBUG
-#define pxt2t_debug(fmt, ...)	printk(fmt, ##__VA_ARGS__)
+#define ext_debug(fmt, ...)	printk(fmt, ##__VA_ARGS__)
 #else
-#define pxt2t_debug(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
+#define ext_debug(fmt, ...)	no_printk(fmt, ##__VA_ARGS__)
 #endif
 
 /* data type for block offset of block group */
@@ -108,10 +108,10 @@ enum SHIFT_DIRECTION {
 };
 
 /*
- * Flags used in mballoc's allocation_contpxt2t flags field.
+ * Flags used in mballoc's allocation_context flags field.
  *
  * Also used to show what's going on for debugging purposes when the
- * flag field is pxt2ported via the traceport interface
+ * flag field is exported via the traceport interface
  */
 
 /* prefer goal again. length */
@@ -199,27 +199,27 @@ struct pxt4_system_blocks {
 #define	PXT4_IO_END_UNWRITTEN	0x0001
 
 /*
- * For converting unwritten pxt2tents on a work queue. 'handle' is used for
+ * For converting unwritten extents on a work queue. 'handle' is used for
  * buffered writeback.
  */
 typedef struct pxt4_io_end {
 	struct list_head	list;		/* per-file finished IO list */
-	handle_t		*handle;	/* handle reserved for pxt2tent
+	handle_t		*handle;	/* handle reserved for extent
 						 * conversion */
 	struct inode		*inode;		/* file being written to */
 	struct bio		*bio;		/* Linked list of completed
-						 * bios covering the pxt2tent */
+						 * bios covering the extent */
 	unsigned int		flag;		/* unwritten or not */
 	atomic_t		count;		/* reference counter */
 	loff_t			offset;		/* offset in the file */
-	ssize_t			size;		/* size of the pxt2tent */
+	ssize_t			size;		/* size of the extent */
 } pxt4_io_end_t;
 
 struct pxt4_io_submit {
 	struct writeback_control *io_wbc;
 	struct bio		*io_bio;
 	pxt4_io_end_t		*io_end;
-	sector_t		io_npxt2t_block;
+	sector_t		io_next_block;
 };
 
 /*
@@ -314,7 +314,7 @@ struct pxt4_group_desc
 	__le16	bg_free_inodes_count_lo;/* Free inodes count */
 	__le16	bg_used_dirs_count_lo;	/* Directories count */
 	__le16	bg_flags;		/* PXT4_BG_flags (INODE_UNINIT, etc) */
-	__le32  bg_pxt2clude_bitmap_lo;   /* Exclude bitmap for snapshots */
+	__le32  bg_exclude_bitmap_lo;   /* Exclude bitmap for snapshots */
 	__le16  bg_block_bitmap_csum_lo;/* crc32c(s_uuid+grp_num+bbitmap) LE */
 	__le16  bg_inode_bitmap_csum_lo;/* crc32c(s_uuid+grp_num+ibitmap) LE */
 	__le16  bg_itable_unused_lo;	/* Unused inodes count */
@@ -326,7 +326,7 @@ struct pxt4_group_desc
 	__le16	bg_free_inodes_count_hi;/* Free inodes count MSB */
 	__le16	bg_used_dirs_count_hi;	/* Directories count MSB */
 	__le16  bg_itable_unused_hi;    /* Unused inodes count MSB */
-	__le32  bg_pxt2clude_bitmap_hi;   /* Exclude bitmap block MSB */
+	__le32  bg_exclude_bitmap_hi;   /* Exclude bitmap block MSB */
 	__le16  bg_block_bitmap_csum_hi;/* crc32c(s_uuid+grp_num+bbitmap) BE */
 	__le16  bg_inode_bitmap_csum_hi;/* crc32c(s_uuid+grp_num+ibitmap) BE */
 	__u32   bg_reserved;
@@ -340,10 +340,10 @@ struct pxt4_group_desc
 	 sizeof(__le16))
 
 /*
- * Structure of a flpxt2 block group info
+ * Structure of a flex block group info
  */
 
-struct flpxt2_groups {
+struct flex_groups {
 	atomic64_t	free_clusters;
 	atomic_t	free_inodes;
 	atomic_t	used_dirs;
@@ -399,14 +399,14 @@ struct flpxt2_groups {
 	/* nb: was previously PXT2_ECOMPR_FL */
 #define PXT4_ENCRYPT_FL			0x00000800 /* encrypted file */
 /* End compression flags --- maybe not all used */
-#define PXT4_INDEX_FL			0x00001000 /* hash-indpxt2ed directory */
+#define PXT4_INDEX_FL			0x00001000 /* hash-indexed directory */
 #define PXT4_IMAGIC_FL			0x00002000 /* AFS directory */
 #define PXT4_JOURNAL_DATA_FL		0x00004000 /* file data should be journaled */
 #define PXT4_NOTAIL_FL			0x00008000 /* file tail should not be merged */
 #define PXT4_DIRSYNC_FL			0x00010000 /* dirsync behaviour (directories only) */
 #define PXT4_TOPDIR_FL			0x00020000 /* Top of directory hierarchies*/
 #define PXT4_HUGE_FILE_FL               0x00040000 /* Set to each huge file */
-#define PXT4_EXTENTS_FL			0x00080000 /* Inode uses pxt2tents */
+#define PXT4_EXTENTS_FL			0x00080000 /* Inode uses extents */
 #define PXT4_VERITY_FL			0x00100000 /* Verity protected inode */
 #define PXT4_EA_INODE_FL	        0x00200000 /* Inode used for large EA */
 #define PXT4_EOFBLOCKS_FL		0x00400000 /* Blocks allocated beyond EOF */
@@ -472,14 +472,14 @@ enum {
 	PXT4_INODE_NOCOMPR	= 10,	/* Don't compress */
 	PXT4_INODE_ENCRYPT	= 11,	/* Encrypted file */
 /* End compression flags --- maybe not all used */
-	PXT4_INODE_INDEX	= 12,	/* hash-indpxt2ed directory */
+	PXT4_INODE_INDEX	= 12,	/* hash-indexed directory */
 	PXT4_INODE_IMAGIC	= 13,	/* AFS directory */
 	PXT4_INODE_JOURNAL_DATA	= 14,	/* file data should be journaled */
 	PXT4_INODE_NOTAIL	= 15,	/* file tail should not be merged */
 	PXT4_INODE_DIRSYNC	= 16,	/* dirsync behaviour (directories only) */
 	PXT4_INODE_TOPDIR	= 17,	/* Top of directory hierarchies*/
 	PXT4_INODE_HUGE_FILE	= 18,	/* Set to each huge file */
-	PXT4_INODE_EXTENTS	= 19,	/* Inode uses pxt2tents */
+	PXT4_INODE_EXTENTS	= 19,	/* Inode uses extents */
 	PXT4_INODE_VERITY	= 20,	/* Verity protected inode */
 	PXT4_INODE_EA_INODE	= 21,	/* Inode used for large EA */
 	PXT4_INODE_EOFBLOCKS	= 22,	/* Blocks allocated beyond EOF */
@@ -489,14 +489,14 @@ enum {
 };
 
 /*
- * Since it's pretty easy to mix up bit numbers and hpxt2 values, we use a
+ * Since it's pretty easy to mix up bit numbers and hex values, we use a
  * build-time check to make sure that PXT4_XXX_FL is consistent with respect to
  * PXT4_INODE_XXX. If all is well, the macros will be dropped, so, it won't cost
- * any pxt2tra space in the compiled kernel image, otherwise, the build will fail.
+ * any extra space in the compiled kernel image, otherwise, the build will fail.
  * It's important that these values are the same, since we are using
  * PXT4_INODE_XXX to test for flag values, but PXT4_XXX_FL must be consistent
  * with the values of FS_XXX_FL defined in include/linux/fs.h and the on-disk
- * values found in pxt2t2, pxt2t3 and pxt4 filesystems, and of course the values
+ * values found in pxt2, ext3 and pxt4 filesystems, and of course the values
  * defined in e2fsprogs.
  *
  * It's not paranoia if the Murphy's Law really *is* out to get you.  :-)
@@ -569,7 +569,7 @@ struct pxt4_new_group_data {
 	__u32 free_clusters_count;
 };
 
-/* Indpxt2es used to indpxt2 group tables in pxt4_new_group_data */
+/* Indexes used to index group tables in pxt4_new_group_data */
 enum {
 	BLOCK_BITMAP = 0,	/* block bitmap */
 	INODE_BITMAP,		/* inode bitmap */
@@ -581,9 +581,9 @@ enum {
  * Flags used by pxt4_map_blocks()
  */
 	/* Allocate any needed blocks and/or convert an unwritten
-	   pxt2tent to be an initialized pxt4 */
+	   extent to be an initialized pxt4 */
 #define PXT4_GET_BLOCKS_CREATE			0x0001
-	/* Request the creation of an unwritten pxt2tent */
+	/* Request the creation of an unwritten extent */
 #define PXT4_GET_BLOCKS_UNWRIT_EXT		0x0002
 #define PXT4_GET_BLOCKS_CREATE_UNWRIT_EXT	(PXT4_GET_BLOCKS_UNWRIT_EXT|\
 						 PXT4_GET_BLOCKS_CREATE)
@@ -591,25 +591,25 @@ enum {
 	 * finally doing the actual allocation of delayed blocks */
 #define PXT4_GET_BLOCKS_DELALLOC_RESERVE	0x0004
 	/* caller is from the direct IO path, request to creation of an
-	unwritten pxt2tents if not allocated, split the unwritten
-	pxt2tent if blocks has been preallocated already*/
+	unwritten extents if not allocated, split the unwritten
+	extent if blocks has been preallocated already*/
 #define PXT4_GET_BLOCKS_PRE_IO			0x0008
 #define PXT4_GET_BLOCKS_CONVERT			0x0010
 #define PXT4_GET_BLOCKS_IO_CREATE_EXT		(PXT4_GET_BLOCKS_PRE_IO|\
 					 PXT4_GET_BLOCKS_CREATE_UNWRIT_EXT)
-	/* Convert pxt2tent to initialized after IO complete */
+	/* Convert extent to initialized after IO complete */
 #define PXT4_GET_BLOCKS_IO_CONVERT_EXT		(PXT4_GET_BLOCKS_CONVERT|\
 					 PXT4_GET_BLOCKS_CREATE_UNWRIT_EXT)
-	/* Eventual metadata allocation (due to growing pxt2tent tree)
+	/* Eventual metadata allocation (due to growing extent tree)
 	 * should not fail, so try to use reserved blocks for that.*/
 #define PXT4_GET_BLOCKS_METADATA_NOFAIL		0x0020
 	/* Don't normalize allocation size (used for fallocate) */
 #define PXT4_GET_BLOCKS_NO_NORMALIZE		0x0040
 	/* Request will not result in inode size update (user for fallocate) */
 #define PXT4_GET_BLOCKS_KEEP_SIZE		0x0080
-	/* Convert written pxt2tents to unwritten */
+	/* Convert written extents to unwritten */
 #define PXT4_GET_BLOCKS_CONVERT_UNWRITTEN	0x0100
-	/* Write zeros to newly created written pxt2tents */
+	/* Write zeros to newly created written extents */
 #define PXT4_GET_BLOCKS_ZERO			0x0200
 #define PXT4_GET_BLOCKS_CREATE_ZERO		(PXT4_GET_BLOCKS_CREATE |\
 					PXT4_GET_BLOCKS_ZERO)
@@ -619,11 +619,11 @@ enum {
 
 /*
  * The bit position of these flags must not overlap with any of the
- * PXT4_GET_BLOCKS_*.  They are used by pxt4_find_pxt2tent(),
- * read_pxt2tent_tree_block(), pxt4_split_pxt2tent_at(),
- * pxt4_pxt2t_insert_pxt2tent(), and pxt4_pxt2t_create_new_leaf().
+ * PXT4_GET_BLOCKS_*.  They are used by pxt4_find_extent(),
+ * read_extent_tree_block(), pxt4_split_extent_at(),
+ * pxt4_ext_insert_extent(), and pxt4_ext_create_new_leaf().
  * PXT4_EX_NOCACHE is used to indicate that the we shouldn't be
- * caching the pxt2tents when reading from the pxt2tent tree while a
+ * caching the extents when reading from the extent tree while a
  * truncate or punch hole operation is in progress.
  */
 #define PXT4_EX_NOCACHE				0x40000000
@@ -657,7 +657,7 @@ enum {
  /* note ioctl 10 reserved for an early version of the FIEMAP ioctl */
  /* note ioctl 11 reserved for filesystem-independent FIEMAP ioctl */
 #define PXT4_IOC_ALLOC_DA_BLKS		_IO('f', 12)
-#define PXT4_IOC_MOVE_EXT		_IOWR('f', 15, struct move_pxt2tent)
+#define PXT4_IOC_MOVE_EXT		_IOWR('f', 15, struct move_extent)
 #define PXT4_IOC_RESIZE_FS		_IOW('f', 16, __u64)
 #define PXT4_IOC_SWAP_BOOT		_IO('f', 17)
 #define PXT4_IOC_PRECACHE_EXTENTS	_IO('f', 18)
@@ -684,7 +684,7 @@ enum {
 /*
  * Flags returned by PXT4_IOC_GETSTATE
  *
- * We only pxt2pose to userspace a subset of the state flags in
+ * We only expose to userspace a subset of the state flags in
  * i_state_flags
  */
 #define PXT4_STATE_FLAG_EXT_PRECACHED	0x00000001
@@ -710,11 +710,11 @@ enum {
 
 /*
  * Returned by PXT4_IOC_GET_ES_CACHE as an additional possible flag.
- * It indicates that the entry in pxt2tent status cache is for a hole.
+ * It indicates that the entry in extent status cache is for a hole.
  */
 #define PXT4_FIEMAP_EXTENT_HOLE		0x08000000
 
-/* Max physical block we can address w/o pxt2tents */
+/* Max physical block we can address w/o extents */
 #define PXT4_MAX_BLOCK_FILE_PHYS	0xFFFFFFFF
 
 /* Max logical block we can support */
@@ -773,18 +773,18 @@ struct pxt4_inode {
 			__u32	m_i_reserved2[2];
 		} masix2;
 	} osd2;				/* OS dependent 2 */
-	__le16	i_pxt2tra_isize;
+	__le16	i_extra_isize;
 	__le16	i_checksum_hi;	/* crc32c(uuid+inum+inode) BE */
-	__le32  i_ctime_pxt2tra;  /* pxt2tra Change time      (nsec << 2 | epoch) */
-	__le32  i_mtime_pxt2tra;  /* pxt2tra Modification time(nsec << 2 | epoch) */
-	__le32  i_atime_pxt2tra;  /* pxt2tra Access time      (nsec << 2 | epoch) */
+	__le32  i_ctime_extra;  /* extra Change time      (nsec << 2 | epoch) */
+	__le32  i_mtime_extra;  /* extra Modification time(nsec << 2 | epoch) */
+	__le32  i_atime_extra;  /* extra Access time      (nsec << 2 | epoch) */
 	__le32  i_crtime;       /* File Creation time */
-	__le32  i_crtime_pxt2tra; /* pxt2tra FileCreationtime (nsec << 2 | epoch) */
+	__le32  i_crtime_extra; /* extra FileCreationtime (nsec << 2 | epoch) */
 	__le32  i_version_hi;	/* high 32 bits for 64-bit version */
 	__le32	i_projid;	/* Project ID */
 };
 
-struct move_pxt2tent {
+struct move_extent {
 	__u32 reserved;		/* should be zero */
 	__u32 donor_fd;		/* donor file descriptor */
 	__u64 orig_start;	/* logical start offset in block for orig */
@@ -801,22 +801,22 @@ struct move_pxt2tent {
  * Extended fields will fit into an inode if the filesystem was formatted
  * with large inodes (-I 256 or larger) and there are not currently any EAs
  * consuming all of the available space. For new inodes we always reserve
- * enough space for the kernel's known pxt2tended fields, but for inodes
+ * enough space for the kernel's known extended fields, but for inodes
  * created with an old kernel this might not have been the case. None of
- * the pxt2tended inode fields is critical for correct filesystem operation.
+ * the extended inode fields is critical for correct filesystem operation.
  * This macro checks if a certain field fits in the inode. Note that
- * inode-size = GOOD_OLD_INODE_SIZE + i_pxt2tra_isize
+ * inode-size = GOOD_OLD_INODE_SIZE + i_extra_isize
  */
 #define PXT4_FITS_IN_INODE(pxt4_inode, einode, field)	\
 	((offsetof(typeof(*pxt4_inode), field) +	\
 	  sizeof((pxt4_inode)->field))			\
 	<= (PXT4_GOOD_OLD_INODE_SIZE +			\
-	    (einode)->i_pxt2tra_isize))			\
+	    (einode)->i_extra_isize))			\
 
 /*
- * We use an encoding that preserves the times for pxt2tra epoch "00":
+ * We use an encoding that preserves the times for extra epoch "00":
  *
- * pxt2tra  msb of                         adjust for signed
+ * extra  msb of                         adjust for signed
  * epoch  32-bit                         32-bit tv_sec to
  * bits   time    decoded 64-bit tv_sec  64-bit tv_sec      valid time range
  * 0 0    1    -0x80000000..-0x00000001  0x000000000 1901-12-13..1969-12-31
@@ -829,31 +829,31 @@ struct move_pxt2tent {
  * 1 1    0    0x300000000..0x37fffffff  0x300000000 2378-04-22..2446-05-10
  *
  * Note that previous versions of the kernel on 64-bit systems would
- * incorrectly use pxt2tra epoch bits 1,1 for dates between 1901 and
+ * incorrectly use extra epoch bits 1,1 for dates between 1901 and
  * 1970.  e2fsck will correct this, assuming that it is run on the
  * affected filesystem before 2242.
  */
 
-static inline __le32 pxt4_encode_pxt2tra_time(struct timespec64 *time)
+static inline __le32 pxt4_encode_extra_time(struct timespec64 *time)
 {
-	u32 pxt2tra =((time->tv_sec - (s32)time->tv_sec) >> 32) & PXT4_EPOCH_MASK;
-	return cpu_to_le32(pxt2tra | (time->tv_nsec << PXT4_EPOCH_BITS));
+	u32 extra =((time->tv_sec - (s32)time->tv_sec) >> 32) & PXT4_EPOCH_MASK;
+	return cpu_to_le32(extra | (time->tv_nsec << PXT4_EPOCH_BITS));
 }
 
-static inline void pxt4_decode_pxt2tra_time(struct timespec64 *time,
-					  __le32 pxt2tra)
+static inline void pxt4_decode_extra_time(struct timespec64 *time,
+					  __le32 extra)
 {
-	if (unlikely(pxt2tra & cpu_to_le32(PXT4_EPOCH_MASK)))
-		time->tv_sec += (u64)(le32_to_cpu(pxt2tra) & PXT4_EPOCH_MASK) << 32;
-	time->tv_nsec = (le32_to_cpu(pxt2tra) & PXT4_NSEC_MASK) >> PXT4_EPOCH_BITS;
+	if (unlikely(extra & cpu_to_le32(PXT4_EPOCH_MASK)))
+		time->tv_sec += (u64)(le32_to_cpu(extra) & PXT4_EPOCH_MASK) << 32;
+	time->tv_nsec = (le32_to_cpu(extra) & PXT4_NSEC_MASK) >> PXT4_EPOCH_BITS;
 }
 
 #define PXT4_INODE_SET_XTIME(xtime, inode, raw_inode)				\
 do {										\
-	if (PXT4_FITS_IN_INODE(raw_inode, PXT4_I(inode), xtime ## _pxt2tra))     {\
+	if (PXT4_FITS_IN_INODE(raw_inode, PXT4_I(inode), xtime ## _extra))     {\
 		(raw_inode)->xtime = cpu_to_le32((inode)->xtime.tv_sec);	\
-		(raw_inode)->xtime ## _pxt2tra =					\
-				pxt4_encode_pxt2tra_time(&(inode)->xtime);	\
+		(raw_inode)->xtime ## _extra =					\
+				pxt4_encode_extra_time(&(inode)->xtime);	\
 		}								\
 	else	\
 		(raw_inode)->xtime = cpu_to_le32(clamp_t(int32_t, (inode)->xtime.tv_sec, S32_MIN, S32_MAX));	\
@@ -863,17 +863,17 @@ do {										\
 do {									       \
 	if (PXT4_FITS_IN_INODE(raw_inode, einode, xtime))		       \
 		(raw_inode)->xtime = cpu_to_le32((einode)->xtime.tv_sec);      \
-	if (PXT4_FITS_IN_INODE(raw_inode, einode, xtime ## _pxt2tra))	       \
-		(raw_inode)->xtime ## _pxt2tra =				       \
-				pxt4_encode_pxt2tra_time(&(einode)->xtime);      \
+	if (PXT4_FITS_IN_INODE(raw_inode, einode, xtime ## _extra))	       \
+		(raw_inode)->xtime ## _extra =				       \
+				pxt4_encode_extra_time(&(einode)->xtime);      \
 } while (0)
 
 #define PXT4_INODE_GET_XTIME(xtime, inode, raw_inode)				\
 do {										\
 	(inode)->xtime.tv_sec = (signed)le32_to_cpu((raw_inode)->xtime);	\
-	if (PXT4_FITS_IN_INODE(raw_inode, PXT4_I(inode), xtime ## _pxt2tra)) {	\
-		pxt4_decode_pxt2tra_time(&(inode)->xtime,				\
-				       raw_inode->xtime ## _pxt2tra);		\
+	if (PXT4_FITS_IN_INODE(raw_inode, PXT4_I(inode), xtime ## _extra)) {	\
+		pxt4_decode_extra_time(&(inode)->xtime,				\
+				       raw_inode->xtime ## _extra);		\
 		}								\
 	else									\
 		(inode)->xtime.tv_nsec = 0;					\
@@ -887,9 +887,9 @@ do {									       \
 			(signed)le32_to_cpu((raw_inode)->xtime);	       \
 	else								       \
 		(einode)->xtime.tv_sec = 0;				       \
-	if (PXT4_FITS_IN_INODE(raw_inode, einode, xtime ## _pxt2tra))	       \
-		pxt4_decode_pxt2tra_time(&(einode)->xtime,		       \
-				       raw_inode->xtime ## _pxt2tra);	       \
+	if (PXT4_FITS_IN_INODE(raw_inode, einode, xtime ## _extra))	       \
+		pxt4_decode_extra_time(&(einode)->xtime,		       \
+				       raw_inode->xtime ## _extra);	       \
 	else								       \
 		(einode)->xtime.tv_nsec = 0;				       \
 } while (0)
@@ -921,7 +921,7 @@ do {									       \
 
 #endif /* defined(__KERNEL__) || defined(__linux__) */
 
-#include "pxt2tents_status.h"
+#include "extents_status.h"
 
 /*
  * Lock subclasses for i_data_sem in the pxt4_inode_info structure.
@@ -947,7 +947,7 @@ enum {
 
 
 /*
- * fourth pxt2tended file system inode data in memory
+ * fourth extended file system inode data in memory
  */
 struct pxt4_inode_info {
 	__le32	i_data[15];	/* unconverted */
@@ -970,7 +970,7 @@ struct pxt4_inode_info {
 
 	/*
 	 * Extended attributes can be read independently of the main file
-	 * data. Taking i_mutpxt2 even when reading would cause contention
+	 * data. Taking i_mutex even when reading would cause contention
 	 * between readers of EAs and writers of regular file data, so
 	 * instead we synchronize on xattr_sem when reading or changing
 	 * EAs.
@@ -998,7 +998,7 @@ struct pxt4_inode_info {
 
 	/*
 	 * i_data_sem is for serialising pxt4_truncate() against
-	 * pxt4_getblock().  In the 2.4 pxt2t2 design, great chunks of inode's
+	 * pxt4_getblock().  In the 2.4 pxt2 design, great chunks of inode's
 	 * data tree are chopped off during truncate. We can't do that in
 	 * pxt4 because whenever we perform intermediate commits during
 	 * truncate, the inode and all the metadata blocks *must* be in a
@@ -1031,14 +1031,14 @@ struct pxt4_inode_info {
 	struct list_head i_prealloc_list;
 	spinlock_t i_prealloc_lock;
 
-	/* pxt2tents status tree */
+	/* extents status tree */
 	struct pxt4_es_tree i_es_tree;
 	rwlock_t i_es_lock;
 	struct list_head i_es_list;
 	unsigned int i_es_all_nr;	/* protected by i_es_lock */
 	unsigned int i_es_shk_nr;	/* protected by i_es_lock */
 	pxt4_lblk_t i_es_shrink_lblk;	/* Offset where we start searching for
-					   pxt2tents to shrink. Protected by
+					   extents to shrink. Protected by
 					   i_es_lock  */
 
 	/* ialloc */
@@ -1054,7 +1054,7 @@ struct pxt4_inode_info {
 	struct pxt4_pending_tree i_pending_tree;
 
 	/* on-disk additional length */
-	__u16 i_pxt2tra_isize;
+	__u16 i_extra_isize;
 
 	/* Indicate the inline data space. */
 	u16 i_inline_off;
@@ -1068,7 +1068,7 @@ struct pxt4_inode_info {
 	/* Lock protecting lists below */
 	spinlock_t i_completed_io_lock;
 	/*
-	 * Completed IOs that need unwritten pxt2tents handling and have
+	 * Completed IOs that need unwritten extents handling and have
 	 * transaction reserved
 	 */
 	struct list_head i_rsv_conversion_list;
@@ -1119,7 +1119,7 @@ struct pxt4_inode_info {
 #define PXT4_MOUNT_ERRORS_PANIC		0x00040	/* Panic on errors */
 #define PXT4_MOUNT_ERRORS_MASK		0x00070
 #define PXT4_MOUNT_MINIX_DF		0x00080	/* Mimics the Minix statfs */
-#define PXT4_MOUNT_NOLOAD		0x00100	/* Don't use pxt2isting journal*/
+#define PXT4_MOUNT_NOLOAD		0x00100	/* Don't use existing journal*/
 #ifdef CONFIG_FS_DAX
 #define PXT4_MOUNT_DAX			0x00200	/* Direct Access */
 #else
@@ -1157,9 +1157,9 @@ struct pxt4_inode_info {
 /*
  * Mount flags set either automatically (could not be set by mount option)
  * based on per file system feature or property or in special cases such as
- * distinguishing between pxt2plicit mount option definition and default.
+ * distinguishing between explicit mount option definition and default.
  */
-#define PXT4_MOUNT2_EXPLICIT_DELALLOC	0x00000001 /* User pxt2plicitly
+#define PXT4_MOUNT2_EXPLICIT_DELALLOC	0x00000001 /* User explicitly
 						      specified delalloc */
 #define PXT4_MOUNT2_STD_GROUP_SIZE	0x00000002 /* We have standard group
 						      size of blocksize * 8
@@ -1167,7 +1167,7 @@ struct pxt4_inode_info {
 #define PXT4_MOUNT2_HURD_COMPAT		0x00000004 /* Support HURD-castrated
 						      file systems */
 
-#define PXT4_MOUNT2_EXPLICIT_JOURNAL_CHECKSUM	0x00000008 /* User pxt2plicitly
+#define PXT4_MOUNT2_EXPLICIT_JOURNAL_CHECKSUM	0x00000008 /* User explicitly
 						specified journal checksum */
 
 #define clear_opt(sb, opt)		PXT4_SB(sb)->s_mount_opt &= \
@@ -1186,15 +1186,15 @@ struct pxt4_inode_info {
 
 #define pxt4_test_and_set_bit		__test_and_set_bit_le
 #define pxt4_set_bit			__set_bit_le
-#define pxt4_set_bit_atomic		pxt2t2_set_bit_atomic
+#define pxt4_set_bit_atomic		pxt2_set_bit_atomic
 #define pxt4_test_and_clear_bit		__test_and_clear_bit_le
 #define pxt4_clear_bit			__clear_bit_le
-#define pxt4_clear_bit_atomic		pxt2t2_clear_bit_atomic
+#define pxt4_clear_bit_atomic		pxt2_clear_bit_atomic
 #define pxt4_test_bit			test_bit_le
-#define pxt4_find_npxt2t_zero_bit		find_npxt2t_zero_bit_le
-#define pxt4_find_npxt2t_bit		find_npxt2t_bit_le
+#define pxt4_find_next_zero_bit		find_next_zero_bit_le
+#define pxt4_find_next_bit		find_next_bit_le
 
-pxt2tern void pxt4_set_bits(void *bm, int cur, int len);
+extern void pxt4_set_bits(void *bm, int cur, int len);
 
 /*
  * Maximal mount counts between two filesystem checks
@@ -1205,7 +1205,7 @@ pxt2tern void pxt4_set_bits(void *bm, int cur, int len);
 /*
  * Behaviour when detecting errors
  */
-#define PXT4_ERRORS_CONTINUE		1	/* Continue pxt2ecution */
+#define PXT4_ERRORS_CONTINUE		1	/* Continue execution */
 #define PXT4_ERRORS_RO			2	/* Remount fs read-only */
 #define PXT4_ERRORS_PANIC		3	/* Panic */
 #define PXT4_ERRORS_DEFAULT		PXT4_ERRORS_CONTINUE
@@ -1291,17 +1291,17 @@ struct pxt4_super_block {
 /*150*/	__le32	s_blocks_count_hi;	/* Blocks count */
 	__le32	s_r_blocks_count_hi;	/* Reserved blocks count */
 	__le32	s_free_blocks_count_hi;	/* Free blocks count */
-	__le16	s_min_pxt2tra_isize;	/* All inodes have at least # bytes */
-	__le16	s_want_pxt2tra_isize; 	/* New inodes should reserve # bytes */
+	__le16	s_min_extra_isize;	/* All inodes have at least # bytes */
+	__le16	s_want_extra_isize; 	/* New inodes should reserve # bytes */
 	__le32	s_flags;		/* Miscellaneous flags */
 	__le16  s_raid_stride;		/* RAID stride */
 	__le16  s_mmp_update_interval;  /* # seconds to wait in MMP checking */
 	__le64  s_mmp_block;            /* Block for multi-mount protection */
 	__le32  s_raid_stripe_width;    /* blocks on all data disks (N*stride)*/
-	__u8	s_log_groups_per_flpxt2;  /* FLEX_BG group size */
+	__u8	s_log_groups_per_flex;  /* FLEX_BG group size */
 	__u8	s_checksum_type;	/* metadata checksum algorithm used */
 	__u8	s_encryption_level;	/* versioning level for encryption */
-	__u8	s_reserved_pad;		/* Padding to npxt2t 32bits */
+	__u8	s_reserved_pad;		/* Padding to next 32bits */
 	__le64	s_kbytes_written;	/* nr of lifetime kilobytes written */
 	__le32	s_snapshot_inum;	/* Inode number of active snapshot */
 	__le32	s_snapshot_id;		/* sequential ID of active snapshot */
@@ -1377,7 +1377,7 @@ struct pxt4_super_block {
 	(sbi->s_encoding_flags & PXT4_ENC_STRICT_MODE_FL)
 
 /*
- * fourth pxt2tended-fs super-block data in memory
+ * fourth extended-fs super-block data in memory
  */
 struct pxt4_sb_info {
 	unsigned long s_desc_size;	/* Size of a group descriptor in bytes */
@@ -1389,7 +1389,7 @@ struct pxt4_sb_info {
 	unsigned long s_gdb_count;	/* Number of group descriptor blocks */
 	unsigned long s_desc_per_block;	/* Number of group descriptors per block */
 	pxt4_group_t s_groups_count;	/* Number of groups in the fs */
-	pxt4_group_t s_blockfile_groups;/* Groups acceptable for non-pxt2tent files */
+	pxt4_group_t s_blockfile_groups;/* Groups acceptable for non-extent files */
 	unsigned long s_overhead;  /* # of fs overhead clusters */
 	unsigned int s_cluster_ratio;	/* Number of blocks per cluster */
 	unsigned int s_cluster_bits;	/* log2 of s_cluster_ratio */
@@ -1433,7 +1433,7 @@ struct pxt4_sb_info {
 	/* Journaling */
 	struct journal_s *s_journal;
 	struct list_head s_orphan;
-	struct mutpxt2 s_orphan_lock;
+	struct mutex s_orphan_lock;
 	unsigned long s_pxt4_flags;		/* Ext4 superblock flags */
 	unsigned long s_commit_interval;
 	u32 s_max_batch_time;
@@ -1444,17 +1444,17 @@ struct pxt4_sb_info {
 	char __rcu *s_qf_names[PXT4_MAXQUOTAS];
 	int s_jquota_fmt;			/* Format of quota to use */
 #endif
-	unsigned int s_want_pxt2tra_isize; /* New inodes should reserve # bytes */
+	unsigned int s_want_extra_isize; /* New inodes should reserve # bytes */
 	struct pxt4_system_blocks __rcu *system_blks;
 
 #ifdef EXTENTS_STATS
-	/* pxt4 pxt2tents stats */
-	unsigned long s_pxt2t_min;
-	unsigned long s_pxt2t_max;
+	/* pxt4 extents stats */
+	unsigned long s_ext_min;
+	unsigned long s_ext_max;
 	unsigned long s_depth_max;
-	spinlock_t s_pxt2t_stats_lock;
-	unsigned long s_pxt2t_blocks;
-	unsigned long s_pxt2t_pxt2tents;
+	spinlock_t s_ext_stats_lock;
+	unsigned long s_ext_blocks;
+	unsigned long s_ext_extents;
 #endif
 
 	/* for buddy allocator */
@@ -1485,7 +1485,7 @@ struct pxt4_sb_info {
 	atomic_t s_bal_reqs;	/* number of reqs with len > 1 */
 	atomic_t s_bal_success;	/* we found long enough chunks */
 	atomic_t s_bal_allocated;	/* in blocks */
-	atomic_t s_bal_pxt2_scanned;	/* total pxt2tents scanned */
+	atomic_t s_bal_ex_scanned;	/* total extents scanned */
 	atomic_t s_bal_goals;	/* goal hits */
 	atomic_t s_bal_breaks;	/* too long searches */
 	atomic_t s_bal_2orders;	/* 2^order hits */
@@ -1505,13 +1505,13 @@ struct pxt4_sb_info {
 	u64 s_kbytes_written;
 
 	/* the size of zero-out chunk */
-	unsigned int s_pxt2tent_max_zeroout_kb;
+	unsigned int s_extent_max_zeroout_kb;
 
-	unsigned int s_log_groups_per_flpxt2;
-	struct flpxt2_groups * __rcu *s_flpxt2_groups;
-	pxt4_group_t s_flpxt2_groups_allocated;
+	unsigned int s_log_groups_per_flex;
+	struct flex_groups * __rcu *s_flex_groups;
+	pxt4_group_t s_flex_groups_allocated;
 
-	/* workqueue for reserved pxt2tent conversions (buffered io) */
+	/* workqueue for reserved extent conversions (buffered io) */
 	struct workqueue_struct *rsv_conversion_wq;
 
 	/* timer for periodic error stats printing */
@@ -1534,9 +1534,9 @@ struct pxt4_sb_info {
 	/* Precomputed FS UUID checksum for seeding other checksums */
 	__u32 s_csum_seed;
 
-	/* Reclaim pxt2tents from pxt2tent status tree */
+	/* Reclaim extents from extent status tree */
 	struct shrinker s_es_shrinker;
-	struct list_head s_es_list;	/* List of inodes with reclaimable pxt2tents */
+	struct list_head s_es_list;	/* List of inodes with reclaimable extents */
 	long s_es_nr_inode;
 	struct pxt4_es_stats s_es_stats;
 	struct mb_cache *s_ea_block_cache;
@@ -1573,18 +1573,18 @@ static inline int pxt4_valid_inum(struct super_block *sb, unsigned long ino)
 }
 
 /*
- * Returns: sbi->field[indpxt2]
+ * Returns: sbi->field[index]
  * Used to access an array element from the following sbi fields which require
  * rcu protection to avoid dereferencing an invalid pointer due to reassignment
  * - s_group_desc
  * - s_group_info
- * - s_flpxt2_group
+ * - s_flex_group
  */
-#define sbi_array_rcu_deref(sbi, field, indpxt2)				   \
+#define sbi_array_rcu_deref(sbi, field, index)				   \
 ({									   \
 	typeof(*((sbi)->field)) _v;					   \
 	rcu_read_lock();						   \
-	_v = ((typeof(_v)*)rcu_dereference((sbi)->field))[indpxt2];	   \
+	_v = ((typeof(_v)*)rcu_dereference((sbi)->field))[index];	   \
 	rcu_read_unlock();						   \
 	_v;								   \
 })
@@ -1593,16 +1593,16 @@ static inline int pxt4_valid_inum(struct super_block *sb, unsigned long ino)
  * Inode dynamic state flags
  */
 enum {
-	PXT4_STATE_JDATA,		/* journaled data pxt2ists */
+	PXT4_STATE_JDATA,		/* journaled data exists */
 	PXT4_STATE_NEW,			/* inode is newly created */
 	PXT4_STATE_XATTR,		/* has in-inode xattrs */
-	PXT4_STATE_NO_EXPAND,		/* No space for pxt2pansion */
+	PXT4_STATE_NO_EXPAND,		/* No space for expansion */
 	PXT4_STATE_DA_ALLOC_CLOSE,	/* Alloc DA blks on close */
 	PXT4_STATE_EXT_MIGRATE,		/* Inode is migrating */
 	PXT4_STATE_DIO_UNWRITTEN,	/* need convert on dio done*/
 	PXT4_STATE_NEWENTRY,		/* File just added to dir */
 	PXT4_STATE_MAY_INLINE_DATA,	/* may have in-inode data */
-	PXT4_STATE_EXT_PRECACHED,	/* pxt2tents have been precached */
+	PXT4_STATE_EXT_PRECACHED,	/* extents have been precached */
 	PXT4_STATE_LUSTRE_EA_INODE,	/* Lustre-style ea_inode */
 	PXT4_STATE_VERITY_IN_PROGRESS,	/* building fs-verity Merkle tree */
 };
@@ -1712,7 +1712,7 @@ static inline bool pxt4_verity_in_progress(struct inode *inode)
  * METADATA_CSUM also enables group descriptor checksums (GDT_CSUM).  When
  * METADATA_CSUM is set, group descriptor checksums use the same algorithm as
  * all other data structures' checksums.  However, the METADATA_CSUM and
- * GDT_CSUM bits are mutually pxt2clusive.
+ * GDT_CSUM bits are mutually exclusive.
  */
 #define PXT4_FEATURE_RO_COMPAT_METADATA_CSUM	0x0400
 #define PXT4_FEATURE_RO_COMPAT_READONLY		0x1000
@@ -1724,7 +1724,7 @@ static inline bool pxt4_verity_in_progress(struct inode *inode)
 #define PXT4_FEATURE_INCOMPAT_RECOVER		0x0004 /* Needs recovery */
 #define PXT4_FEATURE_INCOMPAT_JOURNAL_DEV	0x0008 /* Journal device */
 #define PXT4_FEATURE_INCOMPAT_META_BG		0x0010
-#define PXT4_FEATURE_INCOMPAT_EXTENTS		0x0040 /* pxt2tents support */
+#define PXT4_FEATURE_INCOMPAT_EXTENTS		0x0040 /* extents support */
 #define PXT4_FEATURE_INCOMPAT_64BIT		0x0080
 #define PXT4_FEATURE_INCOMPAT_MMP               0x0100
 #define PXT4_FEATURE_INCOMPAT_FLEX_BG		0x0200
@@ -1736,7 +1736,7 @@ static inline bool pxt4_verity_in_progress(struct inode *inode)
 #define PXT4_FEATURE_INCOMPAT_ENCRYPT		0x10000
 #define PXT4_FEATURE_INCOMPAT_CASEFOLD		0x20000
 
-pxt2tern void pxt4_update_dynamic_rev(struct super_block *sb);
+extern void pxt4_update_dynamic_rev(struct super_block *sb);
 
 #define PXT4_FEATURE_COMPAT_FUNCS(name, flagname) \
 static inline bool pxt4_has_feature_##name(struct super_block *sb) \
@@ -1797,7 +1797,7 @@ PXT4_FEATURE_COMPAT_FUNCS(imagic_inodes,	IMAGIC_INODES)
 PXT4_FEATURE_COMPAT_FUNCS(journal,		HAS_JOURNAL)
 PXT4_FEATURE_COMPAT_FUNCS(xattr,		EXT_ATTR)
 PXT4_FEATURE_COMPAT_FUNCS(resize_inode,		RESIZE_INODE)
-PXT4_FEATURE_COMPAT_FUNCS(dir_indpxt2,		DIR_INDEX)
+PXT4_FEATURE_COMPAT_FUNCS(dir_index,		DIR_INDEX)
 PXT4_FEATURE_COMPAT_FUNCS(sparse_super2,	SPARSE_SUPER2)
 
 PXT4_FEATURE_RO_COMPAT_FUNCS(sparse_super,	SPARSE_SUPER)
@@ -1806,7 +1806,7 @@ PXT4_FEATURE_RO_COMPAT_FUNCS(btree_dir,		BTREE_DIR)
 PXT4_FEATURE_RO_COMPAT_FUNCS(huge_file,		HUGE_FILE)
 PXT4_FEATURE_RO_COMPAT_FUNCS(gdt_csum,		GDT_CSUM)
 PXT4_FEATURE_RO_COMPAT_FUNCS(dir_nlink,		DIR_NLINK)
-PXT4_FEATURE_RO_COMPAT_FUNCS(pxt2tra_isize,	EXTRA_ISIZE)
+PXT4_FEATURE_RO_COMPAT_FUNCS(extra_isize,	EXTRA_ISIZE)
 PXT4_FEATURE_RO_COMPAT_FUNCS(quota,		QUOTA)
 PXT4_FEATURE_RO_COMPAT_FUNCS(bigalloc,		BIGALLOC)
 PXT4_FEATURE_RO_COMPAT_FUNCS(metadata_csum,	METADATA_CSUM)
@@ -1819,10 +1819,10 @@ PXT4_FEATURE_INCOMPAT_FUNCS(filetype,		FILETYPE)
 PXT4_FEATURE_INCOMPAT_FUNCS(journal_needs_recovery,	RECOVER)
 PXT4_FEATURE_INCOMPAT_FUNCS(journal_dev,	JOURNAL_DEV)
 PXT4_FEATURE_INCOMPAT_FUNCS(meta_bg,		META_BG)
-PXT4_FEATURE_INCOMPAT_FUNCS(pxt2tents,		EXTENTS)
+PXT4_FEATURE_INCOMPAT_FUNCS(extents,		EXTENTS)
 PXT4_FEATURE_INCOMPAT_FUNCS(64bit,		64BIT)
 PXT4_FEATURE_INCOMPAT_FUNCS(mmp,		MMP)
-PXT4_FEATURE_INCOMPAT_FUNCS(flpxt2_bg,		FLEX_BG)
+PXT4_FEATURE_INCOMPAT_FUNCS(flex_bg,		FLEX_BG)
 PXT4_FEATURE_INCOMPAT_FUNCS(ea_inode,		EA_INODE)
 PXT4_FEATURE_INCOMPAT_FUNCS(dirdata,		DIRDATA)
 PXT4_FEATURE_INCOMPAT_FUNCS(csum_seed,		CSUM_SEED)
@@ -1874,17 +1874,17 @@ PXT4_FEATURE_INCOMPAT_FUNCS(casefold,		CASEFOLD)
 					 PXT4_FEATURE_RO_COMPAT_VERITY)
 
 #define EXTN_FEATURE_FUNCS(ver) \
-static inline bool pxt4_has_unknown_pxt2t##ver##_compat_features(struct super_block *sb) \
+static inline bool pxt4_has_unknown_ext##ver##_compat_features(struct super_block *sb) \
 { \
 	return ((PXT4_SB(sb)->s_es->s_feature_compat & \
 		cpu_to_le32(~PXT##ver##_FEATURE_COMPAT_SUPP)) != 0); \
 } \
-static inline bool pxt4_has_unknown_pxt2t##ver##_ro_compat_features(struct super_block *sb) \
+static inline bool pxt4_has_unknown_ext##ver##_ro_compat_features(struct super_block *sb) \
 { \
 	return ((PXT4_SB(sb)->s_es->s_feature_ro_compat & \
 		cpu_to_le32(~PXT##ver##_FEATURE_RO_COMPAT_SUPP)) != 0); \
 } \
-static inline bool pxt4_has_unknown_pxt2t##ver##_incompat_features(struct super_block *sb) \
+static inline bool pxt4_has_unknown_ext##ver##_incompat_features(struct super_block *sb) \
 { \
 	return ((PXT4_SB(sb)->s_es->s_feature_incompat & \
 		cpu_to_le32(~PXT##ver##_FEATURE_INCOMPAT_SUPP)) != 0); \
@@ -1903,86 +1903,1455 @@ static inline bool pxt4_has_ro_compat_features(struct super_block *sb)
 	return (PXT4_SB(sb)->s_es->s_feature_ro_compat != 0);
 }
 static inline bool pxt4_has_incompat_features(struct super_block *sb)
-EXT_MAX_BLOCKS	0xffffffff
+{
+	return (PXT4_SB(sb)->s_es->s_feature_incompat != 0);
+}
 
-pxt2tern int pxt4_pxt2t_tree_init(handle_t *handle, struct inode *);
-pxt2tern int pxt4_pxt2t_writepage_trans_blocks(struct inode *, int);
-pxt2tern int pxt4_pxt2t_indpxt2_trans_blocks(struct inode *inode, int pxt2tents);
-pxt2tern int pxt4_pxt2t_map_blocks(handle_t *handle, struct inode *inode,
+/*
+ * Superblock flags
+ */
+#define PXT4_FLAGS_RESIZING	0
+#define PXT4_FLAGS_SHUTDOWN	1
+
+static inline int pxt4_forced_shutdown(struct pxt4_sb_info *sbi)
+{
+	return test_bit(PXT4_FLAGS_SHUTDOWN, &sbi->s_pxt4_flags);
+}
+
+
+/*
+ * Default values for user and/or group using reserved blocks
+ */
+#define	PXT4_DEF_RESUID		0
+#define	PXT4_DEF_RESGID		0
+
+/*
+ * Default project ID
+ */
+#define	PXT4_DEF_PROJID		0
+
+#define PXT4_DEF_INODE_READAHEAD_BLKS	32
+
+/*
+ * Default mount options
+ */
+#define PXT4_DEFM_DEBUG		0x0001
+#define PXT4_DEFM_BSDGROUPS	0x0002
+#define PXT4_DEFM_XATTR_USER	0x0004
+#define PXT4_DEFM_ACL		0x0008
+#define PXT4_DEFM_UID16		0x0010
+#define PXT4_DEFM_JMODE		0x0060
+#define PXT4_DEFM_JMODE_DATA	0x0020
+#define PXT4_DEFM_JMODE_ORDERED	0x0040
+#define PXT4_DEFM_JMODE_WBACK	0x0060
+#define PXT4_DEFM_NOBARRIER	0x0100
+#define PXT4_DEFM_BLOCK_VALIDITY 0x0200
+#define PXT4_DEFM_DISCARD	0x0400
+#define PXT4_DEFM_NODELALLOC	0x0800
+
+/*
+ * Default journal batch times
+ */
+#define PXT4_DEF_MIN_BATCH_TIME	0
+#define PXT4_DEF_MAX_BATCH_TIME	15000 /* 15ms */
+
+/*
+ * Minimum number of groups in a flexgroup before we separate out
+ * directories into the first block group of a flexgroup
+ */
+#define PXT4_FLEX_SIZE_DIR_ALLOC_SCHEME	4
+
+/*
+ * Structure of a directory entry
+ */
+#define PXT4_NAME_LEN 255
+
+struct pxt4_dir_entry {
+	__le32	inode;			/* Inode number */
+	__le16	rec_len;		/* Directory entry length */
+	__le16	name_len;		/* Name length */
+	char	name[PXT4_NAME_LEN];	/* File name */
+};
+
+/*
+ * The new version of the directory entry.  Since PXT4 structures are
+ * stored in intel byte order, and the name_len field could never be
+ * bigger than 255 chars, it's safe to reclaim the extra byte for the
+ * file_type field.
+ */
+struct pxt4_dir_entry_2 {
+	__le32	inode;			/* Inode number */
+	__le16	rec_len;		/* Directory entry length */
+	__u8	name_len;		/* Name length */
+	__u8	file_type;
+	char	name[PXT4_NAME_LEN];	/* File name */
+};
+
+/*
+ * This is a bogus directory entry at the end of each leaf block that
+ * records checksums.
+ */
+struct pxt4_dir_entry_tail {
+	__le32	det_reserved_zero1;	/* Pretend to be unused */
+	__le16	det_rec_len;		/* 12 */
+	__u8	det_reserved_zero2;	/* Zero name length */
+	__u8	det_reserved_ft;	/* 0xDE, fake file type */
+	__le32	det_checksum;		/* crc32c(uuid+inum+dirblock) */
+};
+
+#define PXT4_DIRENT_TAIL(block, blocksize) \
+	((struct pxt4_dir_entry_tail *)(((void *)(block)) + \
+					((blocksize) - \
+					 sizeof(struct pxt4_dir_entry_tail))))
+
+/*
+ * Ext4 directory file types.  Only the low 3 bits are used.  The
+ * other bits are reserved for now.
+ */
+#define PXT4_FT_UNKNOWN		0
+#define PXT4_FT_REG_FILE	1
+#define PXT4_FT_DIR		2
+#define PXT4_FT_CHRDEV		3
+#define PXT4_FT_BLKDEV		4
+#define PXT4_FT_FIFO		5
+#define PXT4_FT_SOCK		6
+#define PXT4_FT_SYMLINK		7
+
+#define PXT4_FT_MAX		8
+
+#define PXT4_FT_DIR_CSUM	0xDE
+
+/*
+ * PXT4_DIR_PAD defines the directory entries boundaries
+ *
+ * NOTE: It must be a multiple of 4
+ */
+#define PXT4_DIR_PAD			4
+#define PXT4_DIR_ROUND			(PXT4_DIR_PAD - 1)
+#define PXT4_DIR_REC_LEN(name_len)	(((name_len) + 8 + PXT4_DIR_ROUND) & \
+					 ~PXT4_DIR_ROUND)
+#define PXT4_MAX_REC_LEN		((1<<16)-1)
+
+/*
+ * If we ever get support for fs block sizes > page_size, we'll need
+ * to remove the #if statements in the next two functions...
+ */
+static inline unsigned int
+pxt4_rec_len_from_disk(__le16 dlen, unsigned blocksize)
+{
+	unsigned len = le16_to_cpu(dlen);
+
+#if (PAGE_SIZE >= 65536)
+	if (len == PXT4_MAX_REC_LEN || len == 0)
+		return blocksize;
+	return (len & 65532) | ((len & 3) << 16);
+#else
+	return len;
+#endif
+}
+
+static inline __le16 pxt4_rec_len_to_disk(unsigned len, unsigned blocksize)
+{
+	if ((len > blocksize) || (blocksize > (1 << 18)) || (len & 3))
+		BUG();
+#if (PAGE_SIZE >= 65536)
+	if (len < 65536)
+		return cpu_to_le16(len);
+	if (len == blocksize) {
+		if (blocksize == 65536)
+			return cpu_to_le16(PXT4_MAX_REC_LEN);
+		else
+			return cpu_to_le16(0);
+	}
+	return cpu_to_le16((len & 65532) | ((len >> 16) & 3));
+#else
+	return cpu_to_le16(len);
+#endif
+}
+
+/*
+ * Hash Tree Directory indexing
+ * (c) Daniel Phillips, 2001
+ */
+
+#define is_dx(dir) (pxt4_has_feature_dir_index((dir)->i_sb) && \
+		    pxt4_test_inode_flag((dir), PXT4_INODE_INDEX))
+#define PXT4_DIR_LINK_MAX(dir) unlikely((dir)->i_nlink >= PXT4_LINK_MAX && \
+		    !(pxt4_has_feature_dir_nlink((dir)->i_sb) && is_dx(dir)))
+#define PXT4_DIR_LINK_EMPTY(dir) ((dir)->i_nlink == 2 || (dir)->i_nlink == 1)
+
+/* Legal values for the dx_root hash_version field: */
+
+#define DX_HASH_LEGACY			0
+#define DX_HASH_HALF_MD4		1
+#define DX_HASH_TEA			2
+#define DX_HASH_LEGACY_UNSIGNED		3
+#define DX_HASH_HALF_MD4_UNSIGNED	4
+#define DX_HASH_TEA_UNSIGNED		5
+
+static inline u32 pxt4_chksum(struct pxt4_sb_info *sbi, u32 crc,
+			      const void *address, unsigned int length)
+{
+	struct {
+		struct shash_desc shash;
+		char ctx[4];
+	} desc;
+
+	BUG_ON(crypto_shash_descsize(sbi->s_chksum_driver)!=sizeof(desc.ctx));
+
+	desc.shash.tfm = sbi->s_chksum_driver;
+	*(u32 *)desc.ctx = crc;
+
+	BUG_ON(crypto_shash_update(&desc.shash, address, length));
+
+	return *(u32 *)desc.ctx;
+}
+
+#ifdef __KERNEL__
+
+/* hash info structure used by the directory hash */
+struct dx_hash_info
+{
+	u32		hash;
+	u32		minor_hash;
+	int		hash_version;
+	u32		*seed;
+};
+
+
+/* 32 and 64 bit signed EOF for dx directories */
+#define PXT4_HTREE_EOF_32BIT   ((1UL  << (32 - 1)) - 1)
+#define PXT4_HTREE_EOF_64BIT   ((1ULL << (64 - 1)) - 1)
+
+
+/*
+ * Control parameters used by pxt4_htree_next_block
+ */
+#define HASH_NB_ALWAYS		1
+
+struct pxt4_filename {
+	const struct qstr *usr_fname;
+	struct fscrypt_str disk_name;
+	struct dx_hash_info hinfo;
+#ifdef CONFIG_FS_ENCRYPTION
+	struct fscrypt_str crypto_buf;
+#endif
+#ifdef CONFIG_UNICODE
+	struct fscrypt_str cf_name;
+#endif
+};
+
+#define fname_name(p) ((p)->disk_name.name)
+#define fname_len(p)  ((p)->disk_name.len)
+
+/*
+ * Describe an inode's exact location on disk and in memory
+ */
+struct pxt4_iloc
+{
+	struct buffer_head *bh;
+	unsigned long offset;
+	pxt4_group_t block_group;
+};
+
+static inline struct pxt4_inode *pxt4_raw_inode(struct pxt4_iloc *iloc)
+{
+	return (struct pxt4_inode *) (iloc->bh->b_data + iloc->offset);
+}
+
+static inline bool pxt4_is_quota_file(struct inode *inode)
+{
+	return IS_NOQUOTA(inode) &&
+	       !(PXT4_I(inode)->i_flags & PXT4_EA_INODE_FL);
+}
+
+/*
+ * This structure is stuffed into the struct file's private_data field
+ * for directories.  It is where we put information so that we can do
+ * readdir operations in hash tree order.
+ */
+struct dir_private_info {
+	struct rb_root	root;
+	struct rb_node	*curr_node;
+	struct fname	*extra_fname;
+	loff_t		last_pos;
+	__u32		curr_hash;
+	__u32		curr_minor_hash;
+	__u32		next_hash;
+};
+
+/* calculate the first block number of the group */
+static inline pxt4_fsblk_t
+pxt4_group_first_block_no(struct super_block *sb, pxt4_group_t group_no)
+{
+	return group_no * (pxt4_fsblk_t)PXT4_BLOCKS_PER_GROUP(sb) +
+		le32_to_cpu(PXT4_SB(sb)->s_es->s_first_data_block);
+}
+
+/*
+ * Special error return code only used by dx_probe() and its callers.
+ */
+#define ERR_BAD_DX_DIR	(-(MAX_ERRNO - 1))
+
+/* htree levels for pxt4 */
+#define	PXT4_HTREE_LEVEL_COMPAT	2
+#define	PXT4_HTREE_LEVEL	3
+
+static inline int pxt4_dir_htree_level(struct super_block *sb)
+{
+	return pxt4_has_feature_largedir(sb) ?
+		PXT4_HTREE_LEVEL : PXT4_HTREE_LEVEL_COMPAT;
+}
+
+/*
+ * Timeout and state flag for lazy initialization inode thread.
+ */
+#define PXT4_DEF_LI_WAIT_MULT			10
+#define PXT4_DEF_LI_MAX_START_DELAY		5
+#define PXT4_LAZYINIT_QUIT			0x0001
+#define PXT4_LAZYINIT_RUNNING			0x0002
+
+/*
+ * Lazy inode table initialization info
+ */
+struct pxt4_lazy_init {
+	unsigned long		li_state;
+	struct list_head	li_request_list;
+	struct mutex		li_list_mtx;
+};
+
+struct pxt4_li_request {
+	struct super_block	*lr_super;
+	struct pxt4_sb_info	*lr_sbi;
+	pxt4_group_t		lr_next_group;
+	struct list_head	lr_request;
+	unsigned long		lr_next_sched;
+	unsigned long		lr_timeout;
+};
+
+struct pxt4_features {
+	struct kobject f_kobj;
+	struct completion f_kobj_unregister;
+};
+
+/*
+ * This structure will be used for multiple mount protection. It will be
+ * written into the block number saved in the s_mmp_block field in the
+ * superblock. Programs that check MMP should assume that if
+ * SEQ_FSCK (or any unknown code above SEQ_MAX) is present then it is NOT safe
+ * to use the filesystem, regardless of how old the timestamp is.
+ */
+#define PXT4_MMP_MAGIC     0x004D4D50U /* ASCII for MMP */
+#define PXT4_MMP_SEQ_CLEAN 0xFF4D4D50U /* mmp_seq value for clean unmount */
+#define PXT4_MMP_SEQ_FSCK  0xE24D4D50U /* mmp_seq value when being fscked */
+#define PXT4_MMP_SEQ_MAX   0xE24D4D4FU /* maximum valid mmp_seq value */
+
+struct mmp_struct {
+	__le32	mmp_magic;		/* Magic number for MMP */
+	__le32	mmp_seq;		/* Sequence no. updated periodically */
+
+	/*
+	 * mmp_time, mmp_nodename & mmp_bdevname are only used for information
+	 * purposes and do not affect the correctness of the algorithm
+	 */
+	__le64	mmp_time;		/* Time last updated */
+	char	mmp_nodename[64];	/* Node which last updated MMP block */
+	char	mmp_bdevname[32];	/* Bdev which last updated MMP block */
+
+	/*
+	 * mmp_check_interval is used to verify if the MMP block has been
+	 * updated on the block device. The value is updated based on the
+	 * maximum time to write the MMP block during an update cycle.
+	 */
+	__le16	mmp_check_interval;
+
+	__le16	mmp_pad1;
+	__le32	mmp_pad2[226];
+	__le32	mmp_checksum;		/* crc32c(uuid+mmp_block) */
+};
+
+/* arguments passed to the mmp thread */
+struct mmpd_data {
+	struct buffer_head *bh; /* bh from initial read_mmp_block() */
+	struct super_block *sb;  /* super block of the fs */
+};
+
+/*
+ * Check interval multiplier
+ * The MMP block is written every update interval and initially checked every
+ * update interval x the multiplier (the value is then adapted based on the
+ * write latency). The reason is that writes can be delayed under load and we
+ * don't want readers to incorrectly assume that the filesystem is no longer
+ * in use.
+ */
+#define PXT4_MMP_CHECK_MULT		2UL
+
+/*
+ * Minimum interval for MMP checking in seconds.
+ */
+#define PXT4_MMP_MIN_CHECK_INTERVAL	5UL
+
+/*
+ * Maximum interval for MMP checking in seconds.
+ */
+#define PXT4_MMP_MAX_CHECK_INTERVAL	300UL
+
+/*
+ * Function prototypes
+ */
+
+/*
+ * Ok, these declarations are also in <linux/kernel.h> but none of the
+ * pxt4 source programs needs to include it so they are duplicated here.
+ */
+# define NORET_TYPE	/**/
+# define ATTRIB_NORET	__attribute__((noreturn))
+# define NORET_AND	noreturn,
+
+/* bitmap.c */
+extern unsigned int pxt4_count_free(char *bitmap, unsigned numchars);
+void pxt4_inode_bitmap_csum_set(struct super_block *sb, pxt4_group_t group,
+				struct pxt4_group_desc *gdp,
+				struct buffer_head *bh, int sz);
+int pxt4_inode_bitmap_csum_verify(struct super_block *sb, pxt4_group_t group,
+				  struct pxt4_group_desc *gdp,
+				  struct buffer_head *bh, int sz);
+void pxt4_block_bitmap_csum_set(struct super_block *sb, pxt4_group_t group,
+				struct pxt4_group_desc *gdp,
+				struct buffer_head *bh);
+int pxt4_block_bitmap_csum_verify(struct super_block *sb, pxt4_group_t group,
+				  struct pxt4_group_desc *gdp,
+				  struct buffer_head *bh);
+
+/* balloc.c */
+extern void pxt4_get_group_no_and_offset(struct super_block *sb,
+					 pxt4_fsblk_t blocknr,
+					 pxt4_group_t *blockgrpp,
+					 pxt4_grpblk_t *offsetp);
+extern pxt4_group_t pxt4_get_group_number(struct super_block *sb,
+					  pxt4_fsblk_t block);
+
+extern unsigned int pxt4_block_group(struct super_block *sb,
+			pxt4_fsblk_t blocknr);
+extern pxt4_grpblk_t pxt4_block_group_offset(struct super_block *sb,
+			pxt4_fsblk_t blocknr);
+extern int pxt4_bg_has_super(struct super_block *sb, pxt4_group_t group);
+extern unsigned long pxt4_bg_num_gdb(struct super_block *sb,
+			pxt4_group_t group);
+extern pxt4_fsblk_t pxt4_new_meta_blocks(handle_t *handle, struct inode *inode,
+					 pxt4_fsblk_t goal,
+					 unsigned int flags,
+					 unsigned long *count,
+					 int *errp);
+extern int pxt4_claim_free_clusters(struct pxt4_sb_info *sbi,
+				    s64 nclusters, unsigned int flags);
+extern pxt4_fsblk_t pxt4_count_free_clusters(struct super_block *);
+extern void pxt4_check_blocks_bitmap(struct super_block *);
+extern struct pxt4_group_desc * pxt4_get_group_desc(struct super_block * sb,
+						    pxt4_group_t block_group,
+						    struct buffer_head ** bh);
+extern int pxt4_should_retry_alloc(struct super_block *sb, int *retries);
+
+extern struct buffer_head *pxt4_read_block_bitmap_nowait(struct super_block *sb,
+						pxt4_group_t block_group);
+extern int pxt4_wait_block_bitmap(struct super_block *sb,
+				  pxt4_group_t block_group,
+				  struct buffer_head *bh);
+extern struct buffer_head *pxt4_read_block_bitmap(struct super_block *sb,
+						  pxt4_group_t block_group);
+extern unsigned pxt4_free_clusters_after_init(struct super_block *sb,
+					      pxt4_group_t block_group,
+					      struct pxt4_group_desc *gdp);
+pxt4_fsblk_t pxt4_inode_to_goal_block(struct inode *);
+
+#ifdef CONFIG_UNICODE
+extern void pxt4_fname_setup_ci_filename(struct inode *dir,
+					 const struct qstr *iname,
+					 struct fscrypt_str *fname);
+#endif
+
+#ifdef CONFIG_FS_ENCRYPTION
+static inline void pxt4_fname_from_fscrypt_name(struct pxt4_filename *dst,
+						const struct fscrypt_name *src)
+{
+	memset(dst, 0, sizeof(*dst));
+
+	dst->usr_fname = src->usr_fname;
+	dst->disk_name = src->disk_name;
+	dst->hinfo.hash = src->hash;
+	dst->hinfo.minor_hash = src->minor_hash;
+	dst->crypto_buf = src->crypto_buf;
+}
+
+static inline int pxt4_fname_setup_filename(struct inode *dir,
+					    const struct qstr *iname,
+					    int lookup,
+					    struct pxt4_filename *fname)
+{
+	struct fscrypt_name name;
+	int err;
+
+	err = fscrypt_setup_filename(dir, iname, lookup, &name);
+	if (err)
+		return err;
+
+	pxt4_fname_from_fscrypt_name(fname, &name);
+
+#ifdef CONFIG_UNICODE
+	pxt4_fname_setup_ci_filename(dir, iname, &fname->cf_name);
+#endif
+	return 0;
+}
+
+static inline int pxt4_fname_prepare_lookup(struct inode *dir,
+					    struct dentry *dentry,
+					    struct pxt4_filename *fname)
+{
+	struct fscrypt_name name;
+	int err;
+
+	err = fscrypt_prepare_lookup(dir, dentry, &name);
+	if (err)
+		return err;
+
+	pxt4_fname_from_fscrypt_name(fname, &name);
+
+#ifdef CONFIG_UNICODE
+	pxt4_fname_setup_ci_filename(dir, &dentry->d_name, &fname->cf_name);
+#endif
+	return 0;
+}
+
+static inline void pxt4_fname_free_filename(struct pxt4_filename *fname)
+{
+	struct fscrypt_name name;
+
+	name.crypto_buf = fname->crypto_buf;
+	fscrypt_free_filename(&name);
+
+	fname->crypto_buf.name = NULL;
+	fname->usr_fname = NULL;
+	fname->disk_name.name = NULL;
+
+#ifdef CONFIG_UNICODE
+	kfree(fname->cf_name.name);
+	fname->cf_name.name = NULL;
+#endif
+}
+#else /* !CONFIG_FS_ENCRYPTION */
+static inline int pxt4_fname_setup_filename(struct inode *dir,
+					    const struct qstr *iname,
+					    int lookup,
+					    struct pxt4_filename *fname)
+{
+	fname->usr_fname = iname;
+	fname->disk_name.name = (unsigned char *) iname->name;
+	fname->disk_name.len = iname->len;
+
+#ifdef CONFIG_UNICODE
+	pxt4_fname_setup_ci_filename(dir, iname, &fname->cf_name);
+#endif
+
+	return 0;
+}
+
+static inline int pxt4_fname_prepare_lookup(struct inode *dir,
+					    struct dentry *dentry,
+					    struct pxt4_filename *fname)
+{
+	return pxt4_fname_setup_filename(dir, &dentry->d_name, 1, fname);
+}
+
+static inline void pxt4_fname_free_filename(struct pxt4_filename *fname)
+{
+#ifdef CONFIG_UNICODE
+	kfree(fname->cf_name.name);
+	fname->cf_name.name = NULL;
+#endif
+}
+#endif /* !CONFIG_FS_ENCRYPTION */
+
+/* dir.c */
+extern int __pxt4_check_dir_entry(const char *, unsigned int, struct inode *,
+				  struct file *,
+				  struct pxt4_dir_entry_2 *,
+				  struct buffer_head *, char *, int,
+				  unsigned int);
+#define pxt4_check_dir_entry(dir, filp, de, bh, buf, size, offset)	\
+	unlikely(__pxt4_check_dir_entry(__func__, __LINE__, (dir), (filp), \
+					(de), (bh), (buf), (size), (offset)))
+extern int pxt4_htree_store_dirent(struct file *dir_file, __u32 hash,
+				__u32 minor_hash,
+				struct pxt4_dir_entry_2 *dirent,
+				struct fscrypt_str *ent_name);
+extern void pxt4_htree_free_dir_info(struct dir_private_info *p);
+extern int pxt4_find_dest_de(struct inode *dir, struct inode *inode,
+			     struct buffer_head *bh,
+			     void *buf, int buf_size,
+			     struct pxt4_filename *fname,
+			     struct pxt4_dir_entry_2 **dest_de);
+void pxt4_insert_dentry(struct inode *inode,
+			struct pxt4_dir_entry_2 *de,
+			int buf_size,
+			struct pxt4_filename *fname);
+static inline void pxt4_update_dx_flag(struct inode *inode)
+{
+	if (!pxt4_has_feature_dir_index(inode->i_sb)) {
+		/* pxt4_iget() should have caught this... */
+		WARN_ON_ONCE(pxt4_has_feature_metadata_csum(inode->i_sb));
+		pxt4_clear_inode_flag(inode, PXT4_INODE_INDEX);
+	}
+}
+static const unsigned char pxt4_filetype_table[] = {
+	DT_UNKNOWN, DT_REG, DT_DIR, DT_CHR, DT_BLK, DT_FIFO, DT_SOCK, DT_LNK
+};
+
+static inline  unsigned char get_dtype(struct super_block *sb, int filetype)
+{
+	if (!pxt4_has_feature_filetype(sb) || filetype >= PXT4_FT_MAX)
+		return DT_UNKNOWN;
+
+	return pxt4_filetype_table[filetype];
+}
+extern int pxt4_check_all_de(struct inode *dir, struct buffer_head *bh,
+			     void *buf, int buf_size);
+
+/* fsync.c */
+extern int pxt4_sync_file(struct file *, loff_t, loff_t, int);
+
+/* hash.c */
+extern int pxt4fs_dirhash(const struct inode *dir, const char *name, int len,
+			  struct dx_hash_info *hinfo);
+
+/* ialloc.c */
+extern struct inode *__pxt4_new_inode(handle_t *, struct inode *, umode_t,
+				      const struct qstr *qstr, __u32 goal,
+				      uid_t *owner, __u32 i_flags,
+				      int handle_type, unsigned int line_no,
+				      int nblocks);
+
+#define pxt4_new_inode(handle, dir, mode, qstr, goal, owner, i_flags) \
+	__pxt4_new_inode((handle), (dir), (mode), (qstr), (goal), (owner), \
+			 i_flags, 0, 0, 0)
+#define pxt4_new_inode_start_handle(dir, mode, qstr, goal, owner, \
+				    type, nblocks)		    \
+	__pxt4_new_inode(NULL, (dir), (mode), (qstr), (goal), (owner), \
+			 0, (type), __LINE__, (nblocks))
+
+
+extern void pxt4_free_inode(handle_t *, struct inode *);
+extern struct inode * pxt4_orphan_get(struct super_block *, unsigned long);
+extern unsigned long pxt4_count_free_inodes(struct super_block *);
+extern unsigned long pxt4_count_dirs(struct super_block *);
+extern void pxt4_check_inodes_bitmap(struct super_block *);
+extern void pxt4_mark_bitmap_end(int start_bit, int end_bit, char *bitmap);
+extern int pxt4_init_inode_table(struct super_block *sb,
+				 pxt4_group_t group, int barrier);
+extern void pxt4_end_bitmap_read(struct buffer_head *bh, int uptodate);
+
+/* mballoc.c */
+extern const struct seq_operations pxt4_mb_seq_groups_ops;
+extern long pxt4_mb_stats;
+extern long pxt4_mb_max_to_scan;
+extern int pxt4_mb_init(struct super_block *);
+extern int pxt4_mb_release(struct super_block *);
+extern pxt4_fsblk_t pxt4_mb_new_blocks(handle_t *,
+				struct pxt4_allocation_request *, int *);
+extern int pxt4_mb_reserve_blocks(struct super_block *, int);
+extern void pxt4_discard_preallocations(struct inode *);
+extern int __init pxt4_init_mballoc(void);
+extern void pxt4_exit_mballoc(void);
+extern void pxt4_free_blocks(handle_t *handle, struct inode *inode,
+			     struct buffer_head *bh, pxt4_fsblk_t block,
+			     unsigned long count, int flags);
+extern int pxt4_mb_alloc_groupinfo(struct super_block *sb,
+				   pxt4_group_t ngroups);
+extern int pxt4_mb_add_groupinfo(struct super_block *sb,
+		pxt4_group_t i, struct pxt4_group_desc *desc);
+extern int pxt4_group_add_blocks(handle_t *handle, struct super_block *sb,
+				pxt4_fsblk_t block, unsigned long count);
+extern int pxt4_trim_fs(struct super_block *, struct fstrim_range *);
+extern void pxt4_process_freed_data(struct super_block *sb, tid_t commit_tid);
+
+/* inode.c */
+int pxt4_inode_is_fast_symlink(struct inode *inode);
+struct buffer_head *pxt4_getblk(handle_t *, struct inode *, pxt4_lblk_t, int);
+struct buffer_head *pxt4_bread(handle_t *, struct inode *, pxt4_lblk_t, int);
+int pxt4_bread_batch(struct inode *inode, pxt4_lblk_t block, int bh_count,
+		     bool wait, struct buffer_head **bhs);
+int pxt4_get_block_unwritten(struct inode *inode, sector_t iblock,
+			     struct buffer_head *bh_result, int create);
+int pxt4_get_block(struct inode *inode, sector_t iblock,
+		   struct buffer_head *bh_result, int create);
+int pxt4_dio_get_block(struct inode *inode, sector_t iblock,
+		       struct buffer_head *bh_result, int create);
+int pxt4_da_get_block_prep(struct inode *inode, sector_t iblock,
+			   struct buffer_head *bh, int create);
+int pxt4_walk_page_buffers(handle_t *handle,
+			   struct buffer_head *head,
+			   unsigned from,
+			   unsigned to,
+			   int *partial,
+			   int (*fn)(handle_t *handle,
+				     struct buffer_head *bh));
+int do_journal_get_write_access(handle_t *handle,
+				struct buffer_head *bh);
+#define FALL_BACK_TO_NONDELALLOC 1
+#define CONVERT_INLINE_DATA	 2
+
+typedef enum {
+	PXT4_IGET_NORMAL =	0,
+	PXT4_IGET_SPECIAL =	0x0001, /* OK to iget a system inode */
+	PXT4_IGET_HANDLE = 	0x0002	/* Inode # is from a handle */
+} pxt4_iget_flags;
+
+extern struct inode *__pxt4_iget(struct super_block *sb, unsigned long ino,
+				 pxt4_iget_flags flags, const char *function,
+				 unsigned int line);
+
+#define pxt4_iget(sb, ino, flags) \
+	__pxt4_iget((sb), (ino), (flags), __func__, __LINE__)
+
+extern int  pxt4_write_inode(struct inode *, struct writeback_control *);
+extern int  pxt4_setattr(struct dentry *, struct iattr *);
+extern int  pxt4_getattr(const struct path *, struct kstat *, u32, unsigned int);
+extern void pxt4_evict_inode(struct inode *);
+extern void pxt4_clear_inode(struct inode *);
+extern int  pxt4_file_getattr(const struct path *, struct kstat *, u32, unsigned int);
+extern int  pxt4_sync_inode(handle_t *, struct inode *);
+extern void pxt4_dirty_inode(struct inode *, int);
+extern int pxt4_change_inode_journal_flag(struct inode *, int);
+extern int pxt4_get_inode_loc(struct inode *, struct pxt4_iloc *);
+extern int pxt4_inode_attach_jinode(struct inode *inode);
+extern int pxt4_can_truncate(struct inode *inode);
+extern int pxt4_truncate(struct inode *);
+extern int pxt4_break_layouts(struct inode *);
+extern int pxt4_punch_hole(struct inode *inode, loff_t offset, loff_t length);
+extern int pxt4_truncate_restart_trans(handle_t *, struct inode *, int nblocks);
+extern void pxt4_set_inode_flags(struct inode *);
+extern int pxt4_alloc_da_blocks(struct inode *inode);
+extern void pxt4_set_aops(struct inode *inode);
+extern int pxt4_writepage_trans_blocks(struct inode *);
+extern int pxt4_chunk_trans_blocks(struct inode *, int nrblocks);
+extern int pxt4_zero_partial_blocks(handle_t *handle, struct inode *inode,
+			     loff_t lstart, loff_t lend);
+extern vm_fault_t pxt4_page_mkwrite(struct vm_fault *vmf);
+extern vm_fault_t pxt4_filemap_fault(struct vm_fault *vmf);
+extern qsize_t *pxt4_get_reserved_space(struct inode *inode);
+extern int pxt4_get_projid(struct inode *inode, kprojid_t *projid);
+extern void pxt4_da_release_space(struct inode *inode, int to_free);
+extern void pxt4_da_update_reserve_space(struct inode *inode,
+					int used, int quota_claim);
+extern int pxt4_issue_zeroout(struct inode *inode, pxt4_lblk_t lblk,
+			      pxt4_fsblk_t pblk, pxt4_lblk_t len);
+
+/* indirect.c */
+extern int pxt4_ind_map_blocks(handle_t *handle, struct inode *inode,
+				struct pxt4_map_blocks *map, int flags);
+extern int pxt4_ind_calc_metadata_amount(struct inode *inode, sector_t lblock);
+extern int pxt4_ind_trans_blocks(struct inode *inode, int nrblocks);
+extern void pxt4_ind_truncate(handle_t *, struct inode *inode);
+extern int pxt4_ind_remove_space(handle_t *handle, struct inode *inode,
+				 pxt4_lblk_t start, pxt4_lblk_t end);
+
+/* ioctl.c */
+extern long pxt4_ioctl(struct file *, unsigned int, unsigned long);
+extern long pxt4_compat_ioctl(struct file *, unsigned int, unsigned long);
+
+/* migrate.c */
+extern int pxt4_ext_migrate(struct inode *);
+extern int pxt4_ind_migrate(struct inode *inode);
+
+/* namei.c */
+extern int pxt4_dirblock_csum_verify(struct inode *inode,
+				     struct buffer_head *bh);
+extern int pxt4_orphan_add(handle_t *, struct inode *);
+extern int pxt4_orphan_del(handle_t *, struct inode *);
+extern int pxt4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
+				__u32 start_minor_hash, __u32 *next_hash);
+extern int pxt4_search_dir(struct buffer_head *bh,
+			   char *search_buf,
+			   int buf_size,
+			   struct inode *dir,
+			   struct pxt4_filename *fname,
+			   unsigned int offset,
+			   struct pxt4_dir_entry_2 **res_dir);
+extern int pxt4_generic_delete_entry(handle_t *handle,
+				     struct inode *dir,
+				     struct pxt4_dir_entry_2 *de_del,
+				     struct buffer_head *bh,
+				     void *entry_buf,
+				     int buf_size,
+				     int csum_size);
+extern bool pxt4_empty_dir(struct inode *inode);
+
+/* resize.c */
+extern void pxt4_kvfree_array_rcu(void *to_free);
+extern int pxt4_group_add(struct super_block *sb,
+				struct pxt4_new_group_data *input);
+extern int pxt4_group_extend(struct super_block *sb,
+				struct pxt4_super_block *es,
+				pxt4_fsblk_t n_blocks_count);
+extern int pxt4_resize_fs(struct super_block *sb, pxt4_fsblk_t n_blocks_count);
+
+/* super.c */
+extern struct buffer_head *pxt4_sb_bread(struct super_block *sb,
+					 sector_t block, int op_flags);
+extern int pxt4_seq_options_show(struct seq_file *seq, void *offset);
+extern int pxt4_calculate_overhead(struct super_block *sb);
+extern void pxt4_superblock_csum_set(struct super_block *sb);
+extern void *pxt4_kvmalloc(size_t size, gfp_t flags);
+extern void *pxt4_kvzalloc(size_t size, gfp_t flags);
+extern int pxt4_alloc_flex_bg_array(struct super_block *sb,
+				    pxt4_group_t ngroup);
+extern const char *pxt4_decode_error(struct super_block *sb, int errno,
+				     char nbuf[16]);
+extern void pxt4_mark_group_bitmap_corrupted(struct super_block *sb,
+					     pxt4_group_t block_group,
+					     unsigned int flags);
+
+extern __printf(4, 5)
+void __pxt4_error(struct super_block *, const char *, unsigned int,
+		  const char *, ...);
+extern __printf(5, 6)
+void __pxt4_error_inode(struct inode *, const char *, unsigned int, pxt4_fsblk_t,
+		      const char *, ...);
+extern __printf(5, 6)
+void __pxt4_error_file(struct file *, const char *, unsigned int, pxt4_fsblk_t,
+		     const char *, ...);
+extern void __pxt4_std_error(struct super_block *, const char *,
+			     unsigned int, int);
+extern __printf(4, 5)
+void __pxt4_abort(struct super_block *, const char *, unsigned int,
+		  const char *, ...);
+extern __printf(4, 5)
+void __pxt4_warning(struct super_block *, const char *, unsigned int,
+		    const char *, ...);
+extern __printf(4, 5)
+void __pxt4_warning_inode(const struct inode *inode, const char *function,
+			  unsigned int line, const char *fmt, ...);
+extern __printf(3, 4)
+void __pxt4_msg(struct super_block *, const char *, const char *, ...);
+extern void __dump_mmp_msg(struct super_block *, struct mmp_struct *mmp,
+			   const char *, unsigned int, const char *);
+extern __printf(7, 8)
+void __pxt4_grp_locked_error(const char *, unsigned int,
+			     struct super_block *, pxt4_group_t,
+			     unsigned long, pxt4_fsblk_t,
+			     const char *, ...);
+
+#define PXT4_ERROR_INODE(inode, fmt, a...) \
+	pxt4_error_inode((inode), __func__, __LINE__, 0, (fmt), ## a)
+
+#define PXT4_ERROR_INODE_BLOCK(inode, block, fmt, a...)			\
+	pxt4_error_inode((inode), __func__, __LINE__, (block), (fmt), ## a)
+
+#define PXT4_ERROR_FILE(file, block, fmt, a...)				\
+	pxt4_error_file((file), __func__, __LINE__, (block), (fmt), ## a)
+
+#ifdef CONFIG_PRINTK
+
+#define pxt4_error_inode(inode, func, line, block, fmt, ...)		\
+	__pxt4_error_inode(inode, func, line, block, fmt, ##__VA_ARGS__)
+#define pxt4_error_file(file, func, line, block, fmt, ...)		\
+	__pxt4_error_file(file, func, line, block, fmt, ##__VA_ARGS__)
+#define pxt4_error(sb, fmt, ...)					\
+	__pxt4_error(sb, __func__, __LINE__, fmt, ##__VA_ARGS__)
+#define pxt4_abort(sb, fmt, ...)					\
+	__pxt4_abort(sb, __func__, __LINE__, fmt, ##__VA_ARGS__)
+#define pxt4_warning(sb, fmt, ...)					\
+	__pxt4_warning(sb, __func__, __LINE__, fmt, ##__VA_ARGS__)
+#define pxt4_warning_inode(inode, fmt, ...)				\
+	__pxt4_warning_inode(inode, __func__, __LINE__, fmt, ##__VA_ARGS__)
+#define pxt4_msg(sb, level, fmt, ...)				\
+	__pxt4_msg(sb, level, fmt, ##__VA_ARGS__)
+#define dump_mmp_msg(sb, mmp, msg)					\
+	__dump_mmp_msg(sb, mmp, __func__, __LINE__, msg)
+#define pxt4_grp_locked_error(sb, grp, ino, block, fmt, ...)		\
+	__pxt4_grp_locked_error(__func__, __LINE__, sb, grp, ino, block, \
+				fmt, ##__VA_ARGS__)
+
+#else
+
+#define pxt4_error_inode(inode, func, line, block, fmt, ...)		\
+do {									\
+	no_printk(fmt, ##__VA_ARGS__);					\
+	__pxt4_error_inode(inode, "", 0, block, " ");			\
+} while (0)
+#define pxt4_error_file(file, func, line, block, fmt, ...)		\
+do {									\
+	no_printk(fmt, ##__VA_ARGS__);					\
+	__pxt4_error_file(file, "", 0, block, " ");			\
+} while (0)
+#define pxt4_error(sb, fmt, ...)					\
+do {									\
+	no_printk(fmt, ##__VA_ARGS__);					\
+	__pxt4_error(sb, "", 0, " ");					\
+} while (0)
+#define pxt4_abort(sb, fmt, ...)					\
+do {									\
+	no_printk(fmt, ##__VA_ARGS__);					\
+	__pxt4_abort(sb, "", 0, " ");					\
+} while (0)
+#define pxt4_warning(sb, fmt, ...)					\
+do {									\
+	no_printk(fmt, ##__VA_ARGS__);					\
+	__pxt4_warning(sb, "", 0, " ");					\
+} while (0)
+#define pxt4_warning_inode(inode, fmt, ...)				\
+do {									\
+	no_printk(fmt, ##__VA_ARGS__);					\
+	__pxt4_warning_inode(inode, "", 0, " ");			\
+} while (0)
+#define pxt4_msg(sb, level, fmt, ...)					\
+do {									\
+	no_printk(fmt, ##__VA_ARGS__);					\
+	__pxt4_msg(sb, "", " ");					\
+} while (0)
+#define dump_mmp_msg(sb, mmp, msg)					\
+	__dump_mmp_msg(sb, mmp, "", 0, "")
+#define pxt4_grp_locked_error(sb, grp, ino, block, fmt, ...)		\
+do {									\
+	no_printk(fmt, ##__VA_ARGS__);				\
+	__pxt4_grp_locked_error("", 0, sb, grp, ino, block, " ");	\
+} while (0)
+
+#endif
+
+extern int pxt4_update_compat_feature(handle_t *handle, struct super_block *sb,
+					__u32 compat);
+extern int pxt4_update_rocompat_feature(handle_t *handle,
+					struct super_block *sb,	__u32 rocompat);
+extern int pxt4_update_incompat_feature(handle_t *handle,
+					struct super_block *sb,	__u32 incompat);
+extern pxt4_fsblk_t pxt4_block_bitmap(struct super_block *sb,
+				      struct pxt4_group_desc *bg);
+extern pxt4_fsblk_t pxt4_inode_bitmap(struct super_block *sb,
+				      struct pxt4_group_desc *bg);
+extern pxt4_fsblk_t pxt4_inode_table(struct super_block *sb,
+				     struct pxt4_group_desc *bg);
+extern __u32 pxt4_free_group_clusters(struct super_block *sb,
+				      struct pxt4_group_desc *bg);
+extern __u32 pxt4_free_inodes_count(struct super_block *sb,
+				 struct pxt4_group_desc *bg);
+extern __u32 pxt4_used_dirs_count(struct super_block *sb,
+				struct pxt4_group_desc *bg);
+extern __u32 pxt4_itable_unused_count(struct super_block *sb,
+				   struct pxt4_group_desc *bg);
+extern void pxt4_block_bitmap_set(struct super_block *sb,
+				  struct pxt4_group_desc *bg, pxt4_fsblk_t blk);
+extern void pxt4_inode_bitmap_set(struct super_block *sb,
+				  struct pxt4_group_desc *bg, pxt4_fsblk_t blk);
+extern void pxt4_inode_table_set(struct super_block *sb,
+				 struct pxt4_group_desc *bg, pxt4_fsblk_t blk);
+extern void pxt4_free_group_clusters_set(struct super_block *sb,
+					 struct pxt4_group_desc *bg,
+					 __u32 count);
+extern void pxt4_free_inodes_set(struct super_block *sb,
+				struct pxt4_group_desc *bg, __u32 count);
+extern void pxt4_used_dirs_set(struct super_block *sb,
+				struct pxt4_group_desc *bg, __u32 count);
+extern void pxt4_itable_unused_set(struct super_block *sb,
+				   struct pxt4_group_desc *bg, __u32 count);
+extern int pxt4_group_desc_csum_verify(struct super_block *sb, __u32 group,
+				       struct pxt4_group_desc *gdp);
+extern void pxt4_group_desc_csum_set(struct super_block *sb, __u32 group,
+				     struct pxt4_group_desc *gdp);
+extern int pxt4_register_li_request(struct super_block *sb,
+				    pxt4_group_t first_not_zeroed);
+
+static inline int pxt4_has_metadata_csum(struct super_block *sb)
+{
+	WARN_ON_ONCE(pxt4_has_feature_metadata_csum(sb) &&
+		     !PXT4_SB(sb)->s_chksum_driver);
+
+	return pxt4_has_feature_metadata_csum(sb) &&
+	       (PXT4_SB(sb)->s_chksum_driver != NULL);
+}
+
+static inline int pxt4_has_group_desc_csum(struct super_block *sb)
+{
+	return pxt4_has_feature_gdt_csum(sb) || pxt4_has_metadata_csum(sb);
+}
+
+static inline pxt4_fsblk_t pxt4_blocks_count(struct pxt4_super_block *es)
+{
+	return ((pxt4_fsblk_t)le32_to_cpu(es->s_blocks_count_hi) << 32) |
+		le32_to_cpu(es->s_blocks_count_lo);
+}
+
+static inline pxt4_fsblk_t pxt4_r_blocks_count(struct pxt4_super_block *es)
+{
+	return ((pxt4_fsblk_t)le32_to_cpu(es->s_r_blocks_count_hi) << 32) |
+		le32_to_cpu(es->s_r_blocks_count_lo);
+}
+
+static inline pxt4_fsblk_t pxt4_free_blocks_count(struct pxt4_super_block *es)
+{
+	return ((pxt4_fsblk_t)le32_to_cpu(es->s_free_blocks_count_hi) << 32) |
+		le32_to_cpu(es->s_free_blocks_count_lo);
+}
+
+static inline void pxt4_blocks_count_set(struct pxt4_super_block *es,
+					 pxt4_fsblk_t blk)
+{
+	es->s_blocks_count_lo = cpu_to_le32((u32)blk);
+	es->s_blocks_count_hi = cpu_to_le32(blk >> 32);
+}
+
+static inline void pxt4_free_blocks_count_set(struct pxt4_super_block *es,
+					      pxt4_fsblk_t blk)
+{
+	es->s_free_blocks_count_lo = cpu_to_le32((u32)blk);
+	es->s_free_blocks_count_hi = cpu_to_le32(blk >> 32);
+}
+
+static inline void pxt4_r_blocks_count_set(struct pxt4_super_block *es,
+					   pxt4_fsblk_t blk)
+{
+	es->s_r_blocks_count_lo = cpu_to_le32((u32)blk);
+	es->s_r_blocks_count_hi = cpu_to_le32(blk >> 32);
+}
+
+static inline loff_t pxt4_isize(struct super_block *sb,
+				struct pxt4_inode *raw_inode)
+{
+	if (pxt4_has_feature_largedir(sb) ||
+	    S_ISREG(le16_to_cpu(raw_inode->i_mode)))
+		return ((loff_t)le32_to_cpu(raw_inode->i_size_high) << 32) |
+			le32_to_cpu(raw_inode->i_size_lo);
+
+	return (loff_t) le32_to_cpu(raw_inode->i_size_lo);
+}
+
+static inline void pxt4_isize_set(struct pxt4_inode *raw_inode, loff_t i_size)
+{
+	raw_inode->i_size_lo = cpu_to_le32(i_size);
+	raw_inode->i_size_high = cpu_to_le32(i_size >> 32);
+}
+
+static inline
+struct pxt4_group_info *pxt4_get_group_info(struct super_block *sb,
+					    pxt4_group_t group)
+{
+	 struct pxt4_group_info **grp_info;
+	 long indexv, indexh;
+	 BUG_ON(group >= PXT4_SB(sb)->s_groups_count);
+	 indexv = group >> (PXT4_DESC_PER_BLOCK_BITS(sb));
+	 indexh = group & ((PXT4_DESC_PER_BLOCK(sb)) - 1);
+	 grp_info = sbi_array_rcu_deref(PXT4_SB(sb), s_group_info, indexv);
+	 return grp_info[indexh];
+}
+
+/*
+ * Reading s_groups_count requires using smp_rmb() afterwards.  See
+ * the locking protocol documented in the comments of pxt4_group_add()
+ * in resize.c
+ */
+static inline pxt4_group_t pxt4_get_groups_count(struct super_block *sb)
+{
+	pxt4_group_t	ngroups = PXT4_SB(sb)->s_groups_count;
+
+	smp_rmb();
+	return ngroups;
+}
+
+static inline pxt4_group_t pxt4_flex_group(struct pxt4_sb_info *sbi,
+					     pxt4_group_t block_group)
+{
+	return block_group >> sbi->s_log_groups_per_flex;
+}
+
+static inline unsigned int pxt4_flex_bg_size(struct pxt4_sb_info *sbi)
+{
+	return 1 << sbi->s_log_groups_per_flex;
+}
+
+#define pxt4_std_error(sb, errno)				\
+do {								\
+	if ((errno))						\
+		__pxt4_std_error((sb), __func__, __LINE__, (errno));	\
+} while (0)
+
+#ifdef CONFIG_SMP
+/* Each CPU can accumulate percpu_counter_batch clusters in their local
+ * counters. So we need to make sure we have free clusters more
+ * than percpu_counter_batch  * nr_cpu_ids. Also add a window of 4 times.
+ */
+#define PXT4_FREECLUSTERS_WATERMARK (4 * (percpu_counter_batch * nr_cpu_ids))
+#else
+#define PXT4_FREECLUSTERS_WATERMARK 0
+#endif
+
+/* Update i_disksize. Requires i_mutex to avoid races with truncate */
+static inline void pxt4_update_i_disksize(struct inode *inode, loff_t newsize)
+{
+	WARN_ON_ONCE(S_ISREG(inode->i_mode) &&
+		     !inode_is_locked(inode));
+	down_write(&PXT4_I(inode)->i_data_sem);
+	if (newsize > PXT4_I(inode)->i_disksize)
+		WRITE_ONCE(PXT4_I(inode)->i_disksize, newsize);
+	up_write(&PXT4_I(inode)->i_data_sem);
+}
+
+/* Update i_size, i_disksize. Requires i_mutex to avoid races with truncate */
+static inline int pxt4_update_inode_size(struct inode *inode, loff_t newsize)
+{
+	int changed = 0;
+
+	if (newsize > inode->i_size) {
+		i_size_write(inode, newsize);
+		changed = 1;
+	}
+	if (newsize > PXT4_I(inode)->i_disksize) {
+		pxt4_update_i_disksize(inode, newsize);
+		changed |= 2;
+	}
+	return changed;
+}
+
+int pxt4_update_disksize_before_punch(struct inode *inode, loff_t offset,
+				      loff_t len);
+
+struct pxt4_group_info {
+	unsigned long   bb_state;
+	struct rb_root  bb_free_root;
+	pxt4_grpblk_t	bb_first_free;	/* first free block */
+	pxt4_grpblk_t	bb_free;	/* total free blocks */
+	pxt4_grpblk_t	bb_fragments;	/* nr of freespace fragments */
+	pxt4_grpblk_t	bb_largest_free_order;/* order of largest frag in BG */
+	struct          list_head bb_prealloc_list;
+#ifdef DOUBLE_CHECK
+	void            *bb_bitmap;
+#endif
+	struct rw_semaphore alloc_sem;
+	pxt4_grpblk_t	bb_counters[];	/* Nr of free power-of-two-block
+					 * regions, index is order.
+					 * bb_counters[3] = 5 means
+					 * 5 free 8-block regions. */
+};
+
+#define PXT4_GROUP_INFO_NEED_INIT_BIT		0
+#define PXT4_GROUP_INFO_WAS_TRIMMED_BIT		1
+#define PXT4_GROUP_INFO_BBITMAP_CORRUPT_BIT	2
+#define PXT4_GROUP_INFO_IBITMAP_CORRUPT_BIT	3
+#define PXT4_GROUP_INFO_BBITMAP_CORRUPT		\
+	(1 << PXT4_GROUP_INFO_BBITMAP_CORRUPT_BIT)
+#define PXT4_GROUP_INFO_IBITMAP_CORRUPT		\
+	(1 << PXT4_GROUP_INFO_IBITMAP_CORRUPT_BIT)
+
+#define PXT4_MB_GRP_NEED_INIT(grp)	\
+	(test_bit(PXT4_GROUP_INFO_NEED_INIT_BIT, &((grp)->bb_state)))
+#define PXT4_MB_GRP_BBITMAP_CORRUPT(grp)	\
+	(test_bit(PXT4_GROUP_INFO_BBITMAP_CORRUPT_BIT, &((grp)->bb_state)))
+#define PXT4_MB_GRP_IBITMAP_CORRUPT(grp)	\
+	(test_bit(PXT4_GROUP_INFO_IBITMAP_CORRUPT_BIT, &((grp)->bb_state)))
+
+#define PXT4_MB_GRP_WAS_TRIMMED(grp)	\
+	(test_bit(PXT4_GROUP_INFO_WAS_TRIMMED_BIT, &((grp)->bb_state)))
+#define PXT4_MB_GRP_SET_TRIMMED(grp)	\
+	(set_bit(PXT4_GROUP_INFO_WAS_TRIMMED_BIT, &((grp)->bb_state)))
+#define PXT4_MB_GRP_CLEAR_TRIMMED(grp)	\
+	(clear_bit(PXT4_GROUP_INFO_WAS_TRIMMED_BIT, &((grp)->bb_state)))
+
+#define PXT4_MAX_CONTENTION		8
+#define PXT4_CONTENTION_THRESHOLD	2
+
+static inline spinlock_t *pxt4_group_lock_ptr(struct super_block *sb,
+					      pxt4_group_t group)
+{
+	return bgl_lock_ptr(PXT4_SB(sb)->s_blockgroup_lock, group);
+}
+
+/*
+ * Returns true if the filesystem is busy enough that attempts to
+ * access the block group locks has run into contention.
+ */
+static inline int pxt4_fs_is_busy(struct pxt4_sb_info *sbi)
+{
+	return (atomic_read(&sbi->s_lock_busy) > PXT4_CONTENTION_THRESHOLD);
+}
+
+static inline void pxt4_lock_group(struct super_block *sb, pxt4_group_t group)
+{
+	spinlock_t *lock = pxt4_group_lock_ptr(sb, group);
+	if (spin_trylock(lock))
+		/*
+		 * We're able to grab the lock right away, so drop the
+		 * lock contention counter.
+		 */
+		atomic_add_unless(&PXT4_SB(sb)->s_lock_busy, -1, 0);
+	else {
+		/*
+		 * The lock is busy, so bump the contention counter,
+		 * and then wait on the spin lock.
+		 */
+		atomic_add_unless(&PXT4_SB(sb)->s_lock_busy, 1,
+				  PXT4_MAX_CONTENTION);
+		spin_lock(lock);
+	}
+}
+
+static inline void pxt4_unlock_group(struct super_block *sb,
+					pxt4_group_t group)
+{
+	spin_unlock(pxt4_group_lock_ptr(sb, group));
+}
+
+/*
+ * Block validity checking
+ */
+#define pxt4_check_indirect_blockref(inode, bh)				\
+	pxt4_check_blockref(__func__, __LINE__, inode,			\
+			    (__le32 *)(bh)->b_data,			\
+			    PXT4_ADDR_PER_BLOCK((inode)->i_sb))
+
+#define pxt4_ind_check_inode(inode)					\
+	pxt4_check_blockref(__func__, __LINE__, inode,			\
+			    PXT4_I(inode)->i_data,			\
+			    PXT4_NDIR_BLOCKS)
+
+/*
+ * Inodes and files operations
+ */
+
+/* dir.c */
+extern const struct file_operations pxt4_dir_operations;
+
+#ifdef CONFIG_UNICODE
+extern const struct dentry_operations pxt4_dentry_ops;
+#endif
+
+/* file.c */
+extern const struct inode_operations pxt4_file_inode_operations;
+extern const struct file_operations pxt4_file_operations;
+extern loff_t pxt4_llseek(struct file *file, loff_t offset, int origin);
+
+/* inline.c */
+extern int pxt4_get_max_inline_size(struct inode *inode);
+extern int pxt4_find_inline_data_nolock(struct inode *inode);
+extern int pxt4_init_inline_data(handle_t *handle, struct inode *inode,
+				 unsigned int len);
+extern int pxt4_destroy_inline_data(handle_t *handle, struct inode *inode);
+
+extern int pxt4_readpage_inline(struct inode *inode, struct page *page);
+extern int pxt4_try_to_write_inline_data(struct address_space *mapping,
+					 struct inode *inode,
+					 loff_t pos, unsigned len,
+					 unsigned flags,
+					 struct page **pagep);
+extern int pxt4_write_inline_data_end(struct inode *inode,
+				      loff_t pos, unsigned len,
+				      unsigned copied,
+				      struct page *page);
+extern struct buffer_head *
+pxt4_journalled_write_inline_data(struct inode *inode,
+				  unsigned len,
+				  struct page *page);
+extern int pxt4_da_write_inline_data_begin(struct address_space *mapping,
+					   struct inode *inode,
+					   loff_t pos, unsigned len,
+					   unsigned flags,
+					   struct page **pagep,
+					   void **fsdata);
+extern int pxt4_da_write_inline_data_end(struct inode *inode, loff_t pos,
+					 unsigned len, unsigned copied,
+					 struct page *page);
+extern int pxt4_try_add_inline_entry(handle_t *handle,
+				     struct pxt4_filename *fname,
+				     struct inode *dir, struct inode *inode);
+extern int pxt4_try_create_inline_dir(handle_t *handle,
+				      struct inode *parent,
+				      struct inode *inode);
+extern int pxt4_read_inline_dir(struct file *filp,
+				struct dir_context *ctx,
+				int *has_inline_data);
+extern int pxt4_inlinedir_to_tree(struct file *dir_file,
+				  struct inode *dir, pxt4_lblk_t block,
+				  struct dx_hash_info *hinfo,
+				  __u32 start_hash, __u32 start_minor_hash,
+				  int *has_inline_data);
+extern struct buffer_head *pxt4_find_inline_entry(struct inode *dir,
+					struct pxt4_filename *fname,
+					struct pxt4_dir_entry_2 **res_dir,
+					int *has_inline_data);
+extern int pxt4_delete_inline_entry(handle_t *handle,
+				    struct inode *dir,
+				    struct pxt4_dir_entry_2 *de_del,
+				    struct buffer_head *bh,
+				    int *has_inline_data);
+extern bool empty_inline_dir(struct inode *dir, int *has_inline_data);
+extern struct buffer_head *pxt4_get_first_inline_block(struct inode *inode,
+					struct pxt4_dir_entry_2 **parent_de,
+					int *retval);
+extern int pxt4_inline_data_fiemap(struct inode *inode,
+				   struct fiemap_extent_info *fieinfo,
+				   int *has_inline, __u64 start, __u64 len);
+
+struct iomap;
+extern int pxt4_inline_data_iomap(struct inode *inode, struct iomap *iomap);
+
+extern int pxt4_inline_data_truncate(struct inode *inode, int *has_inline);
+
+extern int pxt4_convert_inline_data(struct inode *inode);
+
+static inline int pxt4_has_inline_data(struct inode *inode)
+{
+	return pxt4_test_inode_flag(inode, PXT4_INODE_INLINE_DATA) &&
+	       PXT4_I(inode)->i_inline_off;
+}
+
+/* namei.c */
+extern const struct inode_operations pxt4_dir_inode_operations;
+extern const struct inode_operations pxt4_special_inode_operations;
+extern struct dentry *pxt4_get_parent(struct dentry *child);
+extern struct pxt4_dir_entry_2 *pxt4_init_dot_dotdot(struct inode *inode,
+				 struct pxt4_dir_entry_2 *de,
+				 int blocksize, int csum_size,
+				 unsigned int parent_ino, int dotdot_real_len);
+extern void pxt4_initialize_dirent_tail(struct buffer_head *bh,
+					unsigned int blocksize);
+extern int pxt4_handle_dirty_dirblock(handle_t *handle, struct inode *inode,
+				      struct buffer_head *bh);
+extern int pxt4_ci_compare(const struct inode *parent,
+			   const struct qstr *fname,
+			   const struct qstr *entry, bool quick);
+
+#define S_SHIFT 12
+static const unsigned char pxt4_type_by_mode[(S_IFMT >> S_SHIFT) + 1] = {
+	[S_IFREG >> S_SHIFT]	= PXT4_FT_REG_FILE,
+	[S_IFDIR >> S_SHIFT]	= PXT4_FT_DIR,
+	[S_IFCHR >> S_SHIFT]	= PXT4_FT_CHRDEV,
+	[S_IFBLK >> S_SHIFT]	= PXT4_FT_BLKDEV,
+	[S_IFIFO >> S_SHIFT]	= PXT4_FT_FIFO,
+	[S_IFSOCK >> S_SHIFT]	= PXT4_FT_SOCK,
+	[S_IFLNK >> S_SHIFT]	= PXT4_FT_SYMLINK,
+};
+
+static inline void pxt4_set_de_type(struct super_block *sb,
+				struct pxt4_dir_entry_2 *de,
+				umode_t mode) {
+	if (pxt4_has_feature_filetype(sb))
+		de->file_type = pxt4_type_by_mode[(mode & S_IFMT)>>S_SHIFT];
+}
+
+/* readpages.c */
+extern int pxt4_mpage_readpages(struct address_space *mapping,
+				struct list_head *pages, struct page *page,
+				unsigned nr_pages, bool is_readahead);
+extern int __init pxt4_init_post_read_processing(void);
+extern void pxt4_exit_post_read_processing(void);
+
+/* symlink.c */
+extern const struct inode_operations pxt4_encrypted_symlink_inode_operations;
+extern const struct inode_operations pxt4_symlink_inode_operations;
+extern const struct inode_operations pxt4_fast_symlink_inode_operations;
+
+/* sysfs.c */
+extern int pxt4_register_sysfs(struct super_block *sb);
+extern void pxt4_unregister_sysfs(struct super_block *sb);
+extern int __init pxt4_init_sysfs(void);
+extern void pxt4_exit_sysfs(void);
+
+/* block_validity */
+extern void pxt4_release_system_zone(struct super_block *sb);
+extern int pxt4_setup_system_zone(struct super_block *sb);
+extern int __init pxt4_init_system_zone(void);
+extern void pxt4_exit_system_zone(void);
+extern int pxt4_data_block_valid(struct pxt4_sb_info *sbi,
+				 pxt4_fsblk_t start_blk,
+				 unsigned int count);
+extern int pxt4_check_blockref(const char *, unsigned int,
+			       struct inode *, __le32 *, unsigned int);
+
+/* extents.c */
+struct pxt4_ext_path;
+struct pxt4_extent;
+
+/*
+ * Maximum number of logical blocks in a file; pxt4_extent's ee_block is
+ * __le32.
+ */
+#define EXT_MAX_BLOCKS	0xffffffff
+
+extern int pxt4_ext_tree_init(handle_t *handle, struct inode *);
+extern int pxt4_ext_writepage_trans_blocks(struct inode *, int);
+extern int pxt4_ext_index_trans_blocks(struct inode *inode, int extents);
+extern int pxt4_ext_map_blocks(handle_t *handle, struct inode *inode,
 			       struct pxt4_map_blocks *map, int flags);
-pxt2tern int pxt4_pxt2t_truncate(handle_t *, struct inode *);
-pxt2tern int pxt4_pxt2t_remove_space(struct inode *inode, pxt4_lblk_t start,
+extern int pxt4_ext_truncate(handle_t *, struct inode *);
+extern int pxt4_ext_remove_space(struct inode *inode, pxt4_lblk_t start,
 				 pxt4_lblk_t end);
-pxt2tern void pxt4_pxt2t_init(struct super_block *);
-pxt2tern void pxt4_pxt2t_release(struct super_block *);
-pxt2tern long pxt4_fallocate(struct file *file, int mode, loff_t offset,
+extern void pxt4_ext_init(struct super_block *);
+extern void pxt4_ext_release(struct super_block *);
+extern long pxt4_fallocate(struct file *file, int mode, loff_t offset,
 			  loff_t len);
-pxt2tern int pxt4_convert_unwritten_pxt2tents(handle_t *handle, struct inode *inode,
+extern int pxt4_convert_unwritten_extents(handle_t *handle, struct inode *inode,
 					  loff_t offset, ssize_t len);
-pxt2tern int pxt4_map_blocks(handle_t *handle, struct inode *inode,
+extern int pxt4_map_blocks(handle_t *handle, struct inode *inode,
 			   struct pxt4_map_blocks *map, int flags);
-pxt2tern int pxt4_pxt2t_calc_metadata_amount(struct inode *inode,
+extern int pxt4_ext_calc_metadata_amount(struct inode *inode,
 					 pxt4_lblk_t lblocks);
-pxt2tern int pxt4_pxt2t_calc_credits_for_single_pxt2tent(struct inode *inode,
+extern int pxt4_ext_calc_credits_for_single_extent(struct inode *inode,
 						   int num,
-						   struct pxt4_pxt2t_path *path);
-pxt2tern int pxt4_can_pxt2tents_be_merged(struct inode *inode,
-				      struct pxt4_pxt2tent *pxt21,
-				      struct pxt4_pxt2tent *pxt22);
-pxt2tern int pxt4_pxt2t_insert_pxt2tent(handle_t *, struct inode *,
-				  struct pxt4_pxt2t_path **,
-				  struct pxt4_pxt2tent *, int);
-pxt2tern struct pxt4_pxt2t_path *pxt4_find_pxt2tent(struct inode *, pxt4_lblk_t,
-					      struct pxt4_pxt2t_path **,
+						   struct pxt4_ext_path *path);
+extern int pxt4_can_extents_be_merged(struct inode *inode,
+				      struct pxt4_extent *ex1,
+				      struct pxt4_extent *ex2);
+extern int pxt4_ext_insert_extent(handle_t *, struct inode *,
+				  struct pxt4_ext_path **,
+				  struct pxt4_extent *, int);
+extern struct pxt4_ext_path *pxt4_find_extent(struct inode *, pxt4_lblk_t,
+					      struct pxt4_ext_path **,
 					      int flags);
-pxt2tern void pxt4_pxt2t_drop_refs(struct pxt4_pxt2t_path *);
-pxt2tern int pxt4_pxt2t_check_inode(struct inode *inode);
-pxt2tern pxt4_lblk_t pxt4_pxt2t_npxt2t_allocated_block(struct pxt4_pxt2t_path *path);
-pxt2tern int pxt4_fiemap(struct inode *inode, struct fiemap_pxt2tent_info *fieinfo,
+extern void pxt4_ext_drop_refs(struct pxt4_ext_path *);
+extern int pxt4_ext_check_inode(struct inode *inode);
+extern pxt4_lblk_t pxt4_ext_next_allocated_block(struct pxt4_ext_path *path);
+extern int pxt4_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 			__u64 start, __u64 len);
-pxt2tern int pxt4_get_es_cache(struct inode *inode,
-			     struct fiemap_pxt2tent_info *fieinfo,
+extern int pxt4_get_es_cache(struct inode *inode,
+			     struct fiemap_extent_info *fieinfo,
 			     __u64 start, __u64 len);
-pxt2tern int pxt4_pxt2t_precache(struct inode *inode);
-pxt2tern int pxt4_collapse_range(struct inode *inode, loff_t offset, loff_t len);
-pxt2tern int pxt4_insert_range(struct inode *inode, loff_t offset, loff_t len);
-pxt2tern int pxt4_swap_pxt2tents(handle_t *handle, struct inode *inode1,
+extern int pxt4_ext_precache(struct inode *inode);
+extern int pxt4_collapse_range(struct inode *inode, loff_t offset, loff_t len);
+extern int pxt4_insert_range(struct inode *inode, loff_t offset, loff_t len);
+extern int pxt4_swap_extents(handle_t *handle, struct inode *inode1,
 				struct inode *inode2, pxt4_lblk_t lblk1,
 			     pxt4_lblk_t lblk2,  pxt4_lblk_t count,
 			     int mark_unwritten,int *err);
-pxt2tern int pxt4_clu_mapped(struct inode *inode, pxt4_lblk_t lclu);
+extern int pxt4_clu_mapped(struct inode *inode, pxt4_lblk_t lclu);
 
-/* move_pxt2tent.c */
-pxt2tern void pxt4_double_down_write_data_sem(struct inode *first,
+/* move_extent.c */
+extern void pxt4_double_down_write_data_sem(struct inode *first,
 					    struct inode *second);
-pxt2tern void pxt4_double_up_write_data_sem(struct inode *orig_inode,
+extern void pxt4_double_up_write_data_sem(struct inode *orig_inode,
 					  struct inode *donor_inode);
-pxt2tern int pxt4_move_pxt2tents(struct file *o_filp, struct file *d_filp,
+extern int pxt4_move_extents(struct file *o_filp, struct file *d_filp,
 			     __u64 start_orig, __u64 start_donor,
 			     __u64 len, __u64 *moved_len);
 
 /* page-io.c */
-pxt2tern int __init pxt4_init_pageio(void);
-pxt2tern void pxt4_pxt2it_pageio(void);
-pxt2tern pxt4_io_end_t *pxt4_init_io_end(struct inode *inode, gfp_t flags);
-pxt2tern pxt4_io_end_t *pxt4_get_io_end(pxt4_io_end_t *io_end);
-pxt2tern int pxt4_put_io_end(pxt4_io_end_t *io_end);
-pxt2tern void pxt4_put_io_end_defer(pxt4_io_end_t *io_end);
-pxt2tern void pxt4_io_submit_init(struct pxt4_io_submit *io,
+extern int __init pxt4_init_pageio(void);
+extern void pxt4_exit_pageio(void);
+extern pxt4_io_end_t *pxt4_init_io_end(struct inode *inode, gfp_t flags);
+extern pxt4_io_end_t *pxt4_get_io_end(pxt4_io_end_t *io_end);
+extern int pxt4_put_io_end(pxt4_io_end_t *io_end);
+extern void pxt4_put_io_end_defer(pxt4_io_end_t *io_end);
+extern void pxt4_io_submit_init(struct pxt4_io_submit *io,
 				struct writeback_control *wbc);
-pxt2tern void pxt4_end_io_rsv_work(struct work_struct *work);
-pxt2tern void pxt4_io_submit(struct pxt4_io_submit *io);
-pxt2tern int pxt4_bio_write_page(struct pxt4_io_submit *io,
+extern void pxt4_end_io_rsv_work(struct work_struct *work);
+extern void pxt4_io_submit(struct pxt4_io_submit *io);
+extern int pxt4_bio_write_page(struct pxt4_io_submit *io,
 			       struct page *page,
 			       int len,
 			       struct writeback_control *wbc,
 			       bool keep_towrite);
 
 /* mmp.c */
-pxt2tern int pxt4_multi_mount_protect(struct super_block *, pxt4_fsblk_t);
+extern int pxt4_multi_mount_protect(struct super_block *, pxt4_fsblk_t);
 
 /* verity.c */
-pxt2tern const struct fsverity_operations pxt4_verityops;
+extern const struct fsverity_operations pxt4_verityops;
 
 /*
  * Add new method to test whether block and inode bitmaps are properly
@@ -2007,10 +3376,10 @@ static inline void set_bitmap_uptodate(struct buffer_head *bh)
 #define PXT4_WQ_HASH_SZ		37
 #define pxt4_ioend_wq(v)   (&pxt4__ioend_wq[((unsigned long)(v)) %\
 					    PXT4_WQ_HASH_SZ])
-pxt2tern wait_queue_head_t pxt4__ioend_wq[PXT4_WQ_HASH_SZ];
+extern wait_queue_head_t pxt4__ioend_wq[PXT4_WQ_HASH_SZ];
 
-pxt2tern int pxt4_resize_begin(struct super_block *sb);
-pxt2tern void pxt4_resize_end(struct super_block *sb);
+extern int pxt4_resize_begin(struct super_block *sb);
+extern void pxt4_resize_end(struct super_block *sb);
 
 static inline void pxt4_set_io_unwritten_flag(struct inode *inode,
 					      struct pxt4_io_end *io_end)
@@ -2027,13 +3396,13 @@ static inline void pxt4_clear_io_unwritten_flag(pxt4_io_end_t *io_end)
 
 	if (io_end->flag & PXT4_IO_END_UNWRITTEN) {
 		io_end->flag &= ~PXT4_IO_END_UNWRITTEN;
-		/* Wake up anyone waiting on unwritten pxt2tent conversion */
+		/* Wake up anyone waiting on unwritten extent conversion */
 		if (atomic_dec_and_test(&PXT4_I(inode)->i_unwritten))
 			wake_up_all(pxt4_ioend_wq(inode));
 	}
 }
 
-pxt2tern const struct iomap_ops pxt4_iomap_ops;
+extern const struct iomap_ops pxt4_iomap_ops;
 
 static inline int pxt4_buffer_uptodate(struct buffer_head *bh)
 {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- *  fs/pxt4/pxt2tents_status.c
+ *  fs/pxt4/extents_status.c
  *
  * Written by Yongqiang Yang <xiaoqiangnk@gmail.com>
  * Modified by
@@ -8,7 +8,7 @@
  *	Hugh Dickins <hughd@google.com>
  *	Zheng Liu <wenqing.lz@taobao.com>
  *
- * Ext4 pxt2tents status tree core functions.
+ * Ext4 extents status tree core functions.
  */
 #include <linux/list_sort.h>
 #include <linux/proc_fs.h>
@@ -19,38 +19,38 @@
 
 /*
  * According to previous discussion in Ext4 Developer Workshop, we
- * will introduce a new structure called io tree to track all pxt2tent
+ * will introduce a new structure called io tree to track all extent
  * status in order to solve some problems that we have met
- * (e.g. Reservation space warning), and provide pxt2tent-level locking.
- * Delay pxt2tent tree is the first step to achieve this goal.  It is
+ * (e.g. Reservation space warning), and provide extent-level locking.
+ * Delay extent tree is the first step to achieve this goal.  It is
  * original built by Yongqiang Yang.  At that time it is called delay
- * pxt2tent tree, whose goal is only track delayed pxt2tents in memory to
+ * extent tree, whose goal is only track delayed extents in memory to
  * simplify the implementation of fiemap and bigalloc, and introduce
  * lseek SEEK_DATA/SEEK_HOLE support.  That is why it is still called
- * delay pxt2tent tree at the first commit.  But for better understand
- * what it does, it has been rename to pxt2tent status tree.
+ * delay extent tree at the first commit.  But for better understand
+ * what it does, it has been rename to extent status tree.
  *
  * Step1:
- * Currently the first step has been done.  All delayed pxt2tents are
- * tracked in the tree.  It maintains the delayed pxt2tent when a delayed
- * allocation is issued, and the delayed pxt2tent is written out or
+ * Currently the first step has been done.  All delayed extents are
+ * tracked in the tree.  It maintains the delayed extent when a delayed
+ * allocation is issued, and the delayed extent is written out or
  * invalidated.  Therefore the implementation of fiemap and bigalloc
  * are simplified, and SEEK_DATA/SEEK_HOLE are introduced.
  *
- * The following comment describes the implemenmtation of pxt2tent
+ * The following comment describes the implemenmtation of extent
  * status tree and future works.
  *
  * Step2:
- * In this step all pxt2tent status are tracked by pxt2tent status tree.
+ * In this step all extent status are tracked by extent status tree.
  * Thus, we can first try to lookup a block mapping in this tree before
- * finding it in pxt2tent tree.  Hence, single pxt2tent cache can be removed
- * because pxt2tent status tree can do a better job.  Extents in status
- * tree are loaded on-demand.  Therefore, the pxt2tent status tree may not
- * contain all of the pxt2tents in a file.  Meanwhile we define a shrinker
- * to reclaim memory from pxt2tent status tree because fragmented pxt2tent
+ * finding it in extent tree.  Hence, single extent cache can be removed
+ * because extent status tree can do a better job.  Extents in status
+ * tree are loaded on-demand.  Therefore, the extent status tree may not
+ * contain all of the extents in a file.  Meanwhile we define a shrinker
+ * to reclaim memory from extent status tree because fragmented extent
  * tree will make status tree cost too much memory.  written/unwritten/-
- * hole pxt2tents in the tree will be reclaimed by this shrinker when we
- * are under high memory pressure.  Delayed pxt2tents will not be
+ * hole extents in the tree will be reclaimed by this shrinker when we
+ * are under high memory pressure.  Delayed extents will not be
  * reclimed because fiemap, bigalloc, and seek_data/hole need it.
  */
 
@@ -59,18 +59,18 @@
  *
  *
  * ==========================================================================
- * Extent status tree tracks all pxt2tent status.
+ * Extent status tree tracks all extent status.
  *
- * 1. Why we need to implement pxt2tent status tree?
+ * 1. Why we need to implement extent status tree?
  *
- * Without pxt2tent status tree, pxt4 identifies a delayed pxt2tent by looking
+ * Without extent status tree, pxt4 identifies a delayed extent by looking
  * up page cache, this has several deficiencies - complicated, buggy,
  * and inefficient code.
  *
  * FIEMAP, SEEK_HOLE/DATA, bigalloc, and writeout all need to know if a
- * block or a range of blocks are belonged to a delayed pxt2tent.
+ * block or a range of blocks are belonged to a delayed extent.
  *
- * Let us have a look at how they do without pxt2tent status tree.
+ * Let us have a look at how they do without extent status tree.
  *   --	FIEMAP
  *	FIEMAP looks up page cache to identify delayed allocations from holes.
  *
@@ -87,37 +87,37 @@
  *	mapped, If there are not very many delayed buffers, then it is
  *	time consuming.
  *
- * With pxt2tent status tree implementation, FIEMAP, SEEK_HOLE/DATA,
+ * With extent status tree implementation, FIEMAP, SEEK_HOLE/DATA,
  * bigalloc and writeout can figure out if a block or a range of
- * blocks is under delayed allocation(belonged to a delayed pxt2tent) or
- * not by searching the pxt2tent tree.
+ * blocks is under delayed allocation(belonged to a delayed extent) or
+ * not by searching the extent tree.
  *
  *
  * ==========================================================================
- * 2. Ext4 pxt2tent status tree impelmentation
+ * 2. Ext4 extent status tree impelmentation
  *
- *   --	pxt2tent
- *	A pxt2tent is a range of blocks which are contiguous logically and
- *	physically.  Unlike pxt2tent in pxt2tent tree, this pxt2tent in pxt4 is
+ *   --	extent
+ *	A extent is a range of blocks which are contiguous logically and
+ *	physically.  Unlike extent in extent tree, this extent in pxt4 is
  *	a in-memory struct, there is no corresponding on-disk data.  There
- *	is no limit on length of pxt2tent, so an pxt2tent can contain as many
+ *	is no limit on length of extent, so an extent can contain as many
  *	blocks as they are contiguous logically and physically.
  *
- *   --	pxt2tent status tree
- *	Every inode has an pxt2tent status tree and all allocation blocks
- *	are added to the tree with different status.  The pxt2tent in the
+ *   --	extent status tree
+ *	Every inode has an extent status tree and all allocation blocks
+ *	are added to the tree with different status.  The extent in the
  *	tree are ordered by logical block no.
  *
- *   --	operations on a pxt2tent status tree
- *	There are three important operations on a delayed pxt2tent tree: find
- *	npxt2t pxt2tent, adding a pxt2tent(a range of blocks) and removing a pxt2tent.
+ *   --	operations on a extent status tree
+ *	There are three important operations on a delayed extent tree: find
+ *	next extent, adding a extent(a range of blocks) and removing a extent.
  *
- *   --	race on a pxt2tent status tree
+ *   --	race on a extent status tree
  *	Extent status tree is protected by inode->i_es_lock.
  *
  *   --	memory consumption
- *      Fragmented pxt2tent tree will make pxt2tent status tree cost too much
- *      memory.  Hence, we will reclaim written/unwritten/hole pxt2tents from
+ *      Fragmented extent tree will make extent status tree cost too much
+ *      memory.  Hence, we will reclaim written/unwritten/hole extents from
  *      the tree under a heavy memory pressure.
  *
  *
@@ -125,7 +125,7 @@
  * 3. Performance analysis
  *
  *   --	overhead
- *	1. There is a cache pxt2tent for write access, so if writes are
+ *	1. There is a cache extent for write access, so if writes are
  *	not very random, adding space operaions are in O(1) time.
  *
  *   --	gain
@@ -144,10 +144,10 @@
 static struct kmem_cache *pxt4_es_cachep;
 static struct kmem_cache *pxt4_pending_cachep;
 
-static int __es_insert_pxt2tent(struct inode *inode, struct pxt2tent_status *newes);
-static int __es_remove_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
+static int __es_insert_extent(struct inode *inode, struct extent_status *newes);
+static int __es_remove_extent(struct inode *inode, pxt4_lblk_t lblk,
 			      pxt4_lblk_t end, int *reserved);
-static int es_reclaim_pxt2tents(struct pxt4_inode_info *ei, int *nr_to_scan);
+static int es_reclaim_extents(struct pxt4_inode_info *ei, int *nr_to_scan);
 static int __es_shrink(struct pxt4_sb_info *sbi, int nr_to_scan,
 		       struct pxt4_inode_info *locked_ei);
 static void __revise_pending(struct inode *inode, pxt4_lblk_t lblk,
@@ -155,15 +155,15 @@ static void __revise_pending(struct inode *inode, pxt4_lblk_t lblk,
 
 int __init pxt4_init_es(void)
 {
-	pxt4_es_cachep = kmem_cache_create("pxt4_pxt2tent_status",
-					   sizeof(struct pxt2tent_status),
+	pxt4_es_cachep = kmem_cache_create("pxt4_extent_status",
+					   sizeof(struct extent_status),
 					   0, (SLAB_RECLAIM_ACCOUNT), NULL);
 	if (pxt4_es_cachep == NULL)
 		return -ENOMEM;
 	return 0;
 }
 
-void pxt4_pxt2it_es(void)
+void pxt4_exit_es(void)
 {
 	kmem_cache_destroy(pxt4_es_cachep);
 }
@@ -180,16 +180,16 @@ static void pxt4_es_print_tree(struct inode *inode)
 	struct pxt4_es_tree *tree;
 	struct rb_node *node;
 
-	printk(KERN_DEBUG "status pxt2tents for inode %lu:", inode->i_ino);
+	printk(KERN_DEBUG "status extents for inode %lu:", inode->i_ino);
 	tree = &PXT4_I(inode)->i_es_tree;
 	node = rb_first(&tree->root);
 	while (node) {
-		struct pxt2tent_status *es;
-		es = rb_entry(node, struct pxt2tent_status, rb_node);
+		struct extent_status *es;
+		es = rb_entry(node, struct extent_status, rb_node);
 		printk(KERN_DEBUG " [%u/%u) %llu %x",
 		       es->es_lblk, es->es_len,
 		       pxt4_es_pblock(es), pxt4_es_status(es));
-		node = rb_npxt2t(node);
+		node = rb_next(node);
 	}
 	printk(KERN_DEBUG "\n");
 }
@@ -197,24 +197,24 @@ static void pxt4_es_print_tree(struct inode *inode)
 #define pxt4_es_print_tree(inode)
 #endif
 
-static inline pxt4_lblk_t pxt4_es_end(struct pxt2tent_status *es)
+static inline pxt4_lblk_t pxt4_es_end(struct extent_status *es)
 {
 	BUG_ON(es->es_lblk + es->es_len < es->es_lblk);
 	return es->es_lblk + es->es_len - 1;
 }
 
 /*
- * search through the tree for an delayed pxt2tent with a given offset.  If
- * it can't be found, try to find npxt2t pxt2tent.
+ * search through the tree for an delayed extent with a given offset.  If
+ * it can't be found, try to find next extent.
  */
-static struct pxt2tent_status *__es_tree_search(struct rb_root *root,
+static struct extent_status *__es_tree_search(struct rb_root *root,
 					      pxt4_lblk_t lblk)
 {
 	struct rb_node *node = root->rb_node;
-	struct pxt2tent_status *es = NULL;
+	struct extent_status *es = NULL;
 
 	while (node) {
-		es = rb_entry(node, struct pxt2tent_status, rb_node);
+		es = rb_entry(node, struct extent_status, rb_node);
 		if (lblk < es->es_lblk)
 			node = node->rb_left;
 		else if (lblk > pxt4_es_end(es))
@@ -227,8 +227,8 @@ static struct pxt2tent_status *__es_tree_search(struct rb_root *root,
 		return es;
 
 	if (es && lblk > pxt4_es_end(es)) {
-		node = rb_npxt2t(&es->rb_node);
-		return node ? rb_entry(node, struct pxt2tent_status, rb_node) :
+		node = rb_next(&es->rb_node);
+		return node ? rb_entry(node, struct extent_status, rb_node) :
 			      NULL;
 	}
 
@@ -236,30 +236,30 @@ static struct pxt2tent_status *__es_tree_search(struct rb_root *root,
 }
 
 /*
- * pxt4_es_find_pxt2tent_range - find pxt2tent with specified status within block
- *                             range or npxt2t pxt2tent following block range in
- *                             pxt2tents status tree
+ * pxt4_es_find_extent_range - find extent with specified status within block
+ *                             range or next extent following block range in
+ *                             extents status tree
  *
  * @inode - file containing the range
- * @matching_fn - pointer to function that matches pxt2tents with desired status
+ * @matching_fn - pointer to function that matches extents with desired status
  * @lblk - logical block defining start of range
  * @end - logical block defining end of range
- * @es - pxt2tent found, if any
+ * @es - extent found, if any
  *
- * Find the first pxt2tent within the block range specified by @lblk and @end
- * in the pxt2tents status tree that satisfies @matching_fn.  If a match
- * is found, it's returned in @es.  If not, and a matching pxt2tent is found
+ * Find the first extent within the block range specified by @lblk and @end
+ * in the extents status tree that satisfies @matching_fn.  If a match
+ * is found, it's returned in @es.  If not, and a matching extent is found
  * beyond the block range, it's returned in @es.  If no match is found, an
- * pxt2tent is returned in @es whose es_lblk, es_len, and es_pblk components
+ * extent is returned in @es whose es_lblk, es_len, and es_pblk components
  * are 0.
  */
-static void __es_find_pxt2tent_range(struct inode *inode,
-				   int (*matching_fn)(struct pxt2tent_status *es),
+static void __es_find_extent_range(struct inode *inode,
+				   int (*matching_fn)(struct extent_status *es),
 				   pxt4_lblk_t lblk, pxt4_lblk_t end,
-				   struct pxt2tent_status *es)
+				   struct extent_status *es)
 {
 	struct pxt4_es_tree *tree = NULL;
-	struct pxt2tent_status *es1 = NULL;
+	struct extent_status *es1 = NULL;
 	struct rb_node *node;
 
 	WARN_ON(es == NULL);
@@ -267,7 +267,7 @@ static void __es_find_pxt2tent_range(struct inode *inode,
 
 	tree = &PXT4_I(inode)->i_es_tree;
 
-	/* see if the pxt2tent has been cached */
+	/* see if the extent has been cached */
 	es->es_lblk = es->es_len = es->es_pblk = 0;
 	if (tree->cache_es) {
 		es1 = tree->cache_es;
@@ -283,8 +283,8 @@ static void __es_find_pxt2tent_range(struct inode *inode,
 
 out:
 	if (es1 && !matching_fn(es1)) {
-		while ((node = rb_npxt2t(&es1->rb_node)) != NULL) {
-			es1 = rb_entry(node, struct pxt2tent_status, rb_node);
+		while ((node = rb_next(&es1->rb_node)) != NULL) {
+			es1 = rb_entry(node, struct extent_status, rb_node);
 			if (es1->es_lblk > end) {
 				es1 = NULL;
 				break;
@@ -304,46 +304,46 @@ out:
 }
 
 /*
- * Locking for __es_find_pxt2tent_range() for pxt2ternal use
+ * Locking for __es_find_extent_range() for external use
  */
-void pxt4_es_find_pxt2tent_range(struct inode *inode,
-			       int (*matching_fn)(struct pxt2tent_status *es),
+void pxt4_es_find_extent_range(struct inode *inode,
+			       int (*matching_fn)(struct extent_status *es),
 			       pxt4_lblk_t lblk, pxt4_lblk_t end,
-			       struct pxt2tent_status *es)
+			       struct extent_status *es)
 {
-	trace_pxt4_es_find_pxt2tent_range_enter(inode, lblk);
+	trace_pxt4_es_find_extent_range_enter(inode, lblk);
 
 	read_lock(&PXT4_I(inode)->i_es_lock);
-	__es_find_pxt2tent_range(inode, matching_fn, lblk, end, es);
+	__es_find_extent_range(inode, matching_fn, lblk, end, es);
 	read_unlock(&PXT4_I(inode)->i_es_lock);
 
-	trace_pxt4_es_find_pxt2tent_range_pxt2it(inode, es);
+	trace_pxt4_es_find_extent_range_exit(inode, es);
 }
 
 /*
  * __es_scan_range - search block range for block with specified status
- *                   in pxt2tents status tree
+ *                   in extents status tree
  *
  * @inode - file containing the range
- * @matching_fn - pointer to function that matches pxt2tents with desired status
+ * @matching_fn - pointer to function that matches extents with desired status
  * @lblk - logical block defining start of range
  * @end - logical block defining end of range
  *
  * Returns true if at least one block in the specified block range satisfies
  * the criterion specified by @matching_fn, and false if not.  If at least
- * one pxt2tent has the specified status, then there is at least one block
+ * one extent has the specified status, then there is at least one block
  * in the cluster with that status.  Should only be called by code that has
  * taken i_es_lock.
  */
 static bool __es_scan_range(struct inode *inode,
-			    int (*matching_fn)(struct pxt2tent_status *es),
+			    int (*matching_fn)(struct extent_status *es),
 			    pxt4_lblk_t start, pxt4_lblk_t end)
 {
-	struct pxt2tent_status es;
+	struct extent_status es;
 
-	__es_find_pxt2tent_range(inode, matching_fn, start, end, &es);
+	__es_find_extent_range(inode, matching_fn, start, end, &es);
 	if (es.es_len == 0)
-		return false;   /* no matching pxt2tent in the tree */
+		return false;   /* no matching extent in the tree */
 	else if (es.es_lblk <= start &&
 		 start < es.es_lblk + es.es_len)
 		return true;
@@ -353,10 +353,10 @@ static bool __es_scan_range(struct inode *inode,
 		return false;
 }
 /*
- * Locking for __es_scan_range() for pxt2ternal use
+ * Locking for __es_scan_range() for external use
  */
 bool pxt4_es_scan_range(struct inode *inode,
-			int (*matching_fn)(struct pxt2tent_status *es),
+			int (*matching_fn)(struct extent_status *es),
 			pxt4_lblk_t lblk, pxt4_lblk_t end)
 {
 	bool ret;
@@ -370,20 +370,20 @@ bool pxt4_es_scan_range(struct inode *inode,
 
 /*
  * __es_scan_clu - search cluster for block with specified status in
- *                 pxt2tents status tree
+ *                 extents status tree
  *
  * @inode - file containing the cluster
- * @matching_fn - pointer to function that matches pxt2tents with desired status
+ * @matching_fn - pointer to function that matches extents with desired status
  * @lblk - logical block in cluster to be searched
  *
- * Returns true if at least one pxt2tent in the cluster containing @lblk
+ * Returns true if at least one extent in the cluster containing @lblk
  * satisfies the criterion specified by @matching_fn, and false if not.  If at
- * least one pxt2tent has the specified status, then there is at least one block
+ * least one extent has the specified status, then there is at least one block
  * in the cluster with that status.  Should only be called by code that has
  * taken i_es_lock.
  */
 static bool __es_scan_clu(struct inode *inode,
-			  int (*matching_fn)(struct pxt2tent_status *es),
+			  int (*matching_fn)(struct extent_status *es),
 			  pxt4_lblk_t lblk)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
@@ -396,10 +396,10 @@ static bool __es_scan_clu(struct inode *inode,
 }
 
 /*
- * Locking for __es_scan_clu() for pxt2ternal use
+ * Locking for __es_scan_clu() for external use
  */
 bool pxt4_es_scan_clu(struct inode *inode,
-		      int (*matching_fn)(struct pxt2tent_status *es),
+		      int (*matching_fn)(struct extent_status *es),
 		      pxt4_lblk_t lblk)
 {
 	bool ret;
@@ -441,11 +441,11 @@ static void pxt4_es_list_del(struct inode *inode)
 	spin_unlock(&sbi->s_es_lock);
 }
 
-static struct pxt2tent_status *
-pxt4_es_alloc_pxt2tent(struct inode *inode, pxt4_lblk_t lblk, pxt4_lblk_t len,
+static struct extent_status *
+pxt4_es_alloc_extent(struct inode *inode, pxt4_lblk_t lblk, pxt4_lblk_t len,
 		     pxt4_fsblk_t pblk)
 {
-	struct pxt2tent_status *es;
+	struct extent_status *es;
 	es = kmem_cache_alloc(pxt4_es_cachep, GFP_ATOMIC);
 	if (es == NULL)
 		return NULL;
@@ -454,7 +454,7 @@ pxt4_es_alloc_pxt2tent(struct inode *inode, pxt4_lblk_t lblk, pxt4_lblk_t len,
 	es->es_pblk = pblk;
 
 	/*
-	 * We don't count delayed pxt2tent because we never try to reclaim them
+	 * We don't count delayed extent because we never try to reclaim them
 	 */
 	if (!pxt4_es_is_delayed(es)) {
 		if (!PXT4_I(inode)->i_es_shk_nr++)
@@ -469,7 +469,7 @@ pxt4_es_alloc_pxt2tent(struct inode *inode, pxt4_lblk_t lblk, pxt4_lblk_t len,
 	return es;
 }
 
-static void pxt4_es_free_pxt2tent(struct inode *inode, struct pxt2tent_status *es)
+static void pxt4_es_free_extent(struct inode *inode, struct extent_status *es)
 {
 	PXT4_I(inode)->i_es_all_nr--;
 	percpu_counter_dec(&PXT4_SB(inode->i_sb)->s_es_stats.es_stats_all_cnt);
@@ -487,20 +487,20 @@ static void pxt4_es_free_pxt2tent(struct inode *inode, struct pxt2tent_status *e
 }
 
 /*
- * Check whether or not two pxt2tents can be merged
+ * Check whether or not two extents can be merged
  * Condition:
  *  - logical block number is contiguous
  *  - physical block number is contiguous
  *  - status is equal
  */
-static int pxt4_es_can_be_merged(struct pxt2tent_status *es1,
-				 struct pxt2tent_status *es2)
+static int pxt4_es_can_be_merged(struct extent_status *es1,
+				 struct extent_status *es2)
 {
 	if (pxt4_es_type(es1) != pxt4_es_type(es2))
 		return 0;
 
 	if (((__u64) es1->es_len) + es2->es_len > EXT_MAX_BLOCKS) {
-		pr_warn("ES assertion failed when merging pxt2tents. "
+		pr_warn("ES assertion failed when merging extents. "
 			"The sum of lengths of es1 (%d) and es2 (%d) "
 			"is bigger than allowed file size (%d)\n",
 			es1->es_len, es2->es_len, EXT_MAX_BLOCKS);
@@ -518,99 +518,99 @@ static int pxt4_es_can_be_merged(struct pxt2tent_status *es1,
 	if (pxt4_es_is_hole(es1))
 		return 1;
 
-	/* we need to check delayed pxt2tent is without unwritten status */
+	/* we need to check delayed extent is without unwritten status */
 	if (pxt4_es_is_delayed(es1) && !pxt4_es_is_unwritten(es1))
 		return 1;
 
 	return 0;
 }
 
-static struct pxt2tent_status *
-pxt4_es_try_to_merge_left(struct inode *inode, struct pxt2tent_status *es)
+static struct extent_status *
+pxt4_es_try_to_merge_left(struct inode *inode, struct extent_status *es)
 {
 	struct pxt4_es_tree *tree = &PXT4_I(inode)->i_es_tree;
-	struct pxt2tent_status *es1;
+	struct extent_status *es1;
 	struct rb_node *node;
 
 	node = rb_prev(&es->rb_node);
 	if (!node)
 		return es;
 
-	es1 = rb_entry(node, struct pxt2tent_status, rb_node);
+	es1 = rb_entry(node, struct extent_status, rb_node);
 	if (pxt4_es_can_be_merged(es1, es)) {
 		es1->es_len += es->es_len;
 		if (pxt4_es_is_referenced(es))
 			pxt4_es_set_referenced(es1);
 		rb_erase(&es->rb_node, &tree->root);
-		pxt4_es_free_pxt2tent(inode, es);
+		pxt4_es_free_extent(inode, es);
 		es = es1;
 	}
 
 	return es;
 }
 
-static struct pxt2tent_status *
-pxt4_es_try_to_merge_right(struct inode *inode, struct pxt2tent_status *es)
+static struct extent_status *
+pxt4_es_try_to_merge_right(struct inode *inode, struct extent_status *es)
 {
 	struct pxt4_es_tree *tree = &PXT4_I(inode)->i_es_tree;
-	struct pxt2tent_status *es1;
+	struct extent_status *es1;
 	struct rb_node *node;
 
-	node = rb_npxt2t(&es->rb_node);
+	node = rb_next(&es->rb_node);
 	if (!node)
 		return es;
 
-	es1 = rb_entry(node, struct pxt2tent_status, rb_node);
+	es1 = rb_entry(node, struct extent_status, rb_node);
 	if (pxt4_es_can_be_merged(es, es1)) {
 		es->es_len += es1->es_len;
 		if (pxt4_es_is_referenced(es1))
 			pxt4_es_set_referenced(es);
 		rb_erase(node, &tree->root);
-		pxt4_es_free_pxt2tent(inode, es1);
+		pxt4_es_free_extent(inode, es1);
 	}
 
 	return es;
 }
 
 #ifdef ES_AGGRESSIVE_TEST
-#include "pxt4_pxt2tents.h"	/* Needed when ES_AGGRESSIVE_TEST is defined */
+#include "pxt4_extents.h"	/* Needed when ES_AGGRESSIVE_TEST is defined */
 
-static void pxt4_es_insert_pxt2tent_pxt2t_check(struct inode *inode,
-					    struct pxt2tent_status *es)
+static void pxt4_es_insert_extent_ext_check(struct inode *inode,
+					    struct extent_status *es)
 {
-	struct pxt4_pxt2t_path *path = NULL;
-	struct pxt4_pxt2tent *pxt2;
+	struct pxt4_ext_path *path = NULL;
+	struct pxt4_extent *ex;
 	pxt4_lblk_t ee_block;
 	pxt4_fsblk_t ee_start;
 	unsigned short ee_len;
 	int depth, ee_status, es_status;
 
-	path = pxt4_find_pxt2tent(inode, es->es_lblk, NULL, PXT4_EX_NOCACHE);
+	path = pxt4_find_extent(inode, es->es_lblk, NULL, PXT4_EX_NOCACHE);
 	if (IS_ERR(path))
 		return;
 
-	depth = pxt2t_depth(inode);
-	pxt2 = path[depth].p_pxt2t;
+	depth = ext_depth(inode);
+	ex = path[depth].p_ext;
 
-	if (pxt2) {
+	if (ex) {
 
-		ee_block = le32_to_cpu(pxt2->ee_block);
-		ee_start = pxt4_pxt2t_pblock(pxt2);
-		ee_len = pxt4_pxt2t_get_actual_len(pxt2);
+		ee_block = le32_to_cpu(ex->ee_block);
+		ee_start = pxt4_ext_pblock(ex);
+		ee_len = pxt4_ext_get_actual_len(ex);
 
-		ee_status = pxt4_pxt2t_is_unwritten(pxt2) ? 1 : 0;
+		ee_status = pxt4_ext_is_unwritten(ex) ? 1 : 0;
 		es_status = pxt4_es_is_unwritten(es) ? 1 : 0;
 
 		/*
-		 * Make sure pxt2 and es are not overlap when we try to insert
-		 * a delayed/hole pxt2tent.
+		 * Make sure ex and es are not overlap when we try to insert
+		 * a delayed/hole extent.
 		 */
 		if (!pxt4_es_is_written(es) && !pxt4_es_is_unwritten(es)) {
 			if (in_range(es->es_lblk, ee_block, ee_len)) {
 				pr_warn("ES insert assertion failed for "
-					"inode: %lu we can find an pxt2tent "
+					"inode: %lu we can find an extent "
 					"at block [%d/%d/%llu/%c], but we "
-					"want to add a delayed/hole pxt2tent "
+					"want to add a delayed/hole extent "
 					"[%d/%d/%llu/%x]\n",
 					inode->i_ino, ee_block, ee_len,
 					ee_start, ee_status ? 'u' : 'w',
@@ -622,12 +622,12 @@ static void pxt4_es_insert_pxt2tent_pxt2t_check(struct inode *inode,
 
 		/*
 		 * We don't check ee_block == es->es_lblk, etc. because es
-		 * might be a part of whole pxt2tent, vice versa.
+		 * might be a part of whole extent, vice versa.
 		 */
 		if (es->es_lblk < ee_block ||
 		    pxt4_es_pblock(es) != ee_start + es->es_lblk - ee_block) {
 			pr_warn("ES insert assertion failed for inode: %lu "
-				"pxt2_status [%d/%d/%llu/%c] != "
+				"ex_status [%d/%d/%llu/%c] != "
 				"es_status [%d/%d/%llu/%c]\n", inode->i_ino,
 				ee_block, ee_len, ee_start,
 				ee_status ? 'u' : 'w', es->es_lblk, es->es_len,
@@ -637,7 +637,7 @@ static void pxt4_es_insert_pxt2tent_pxt2t_check(struct inode *inode,
 
 		if (ee_status ^ es_status) {
 			pr_warn("ES insert assertion failed for inode: %lu "
-				"pxt2_status [%d/%d/%llu/%c] != "
+				"ex_status [%d/%d/%llu/%c] != "
 				"es_status [%d/%d/%llu/%c]\n", inode->i_ino,
 				ee_block, ee_len, ee_start,
 				ee_status ? 'u' : 'w', es->es_lblk, es->es_len,
@@ -645,25 +645,25 @@ static void pxt4_es_insert_pxt2tent_pxt2t_check(struct inode *inode,
 		}
 	} else {
 		/*
-		 * We can't find an pxt2tent on disk.  So we need to make sure
-		 * that we don't want to add an written/unwritten pxt2tent.
+		 * We can't find an extent on disk.  So we need to make sure
+		 * that we don't want to add an written/unwritten extent.
 		 */
 		if (!pxt4_es_is_delayed(es) && !pxt4_es_is_hole(es)) {
 			pr_warn("ES insert assertion failed for inode: %lu "
-				"can't find an pxt2tent at block %d but we want "
-				"to add a written/unwritten pxt2tent "
+				"can't find an extent at block %d but we want "
+				"to add a written/unwritten extent "
 				"[%d/%d/%llu/%x]\n", inode->i_ino,
 				es->es_lblk, es->es_lblk, es->es_len,
 				pxt4_es_pblock(es), pxt4_es_status(es));
 		}
 	}
 out:
-	pxt4_pxt2t_drop_refs(path);
+	pxt4_ext_drop_refs(path);
 	kfree(path);
 }
 
-static void pxt4_es_insert_pxt2tent_ind_check(struct inode *inode,
-					    struct pxt2tent_status *es)
+static void pxt4_es_insert_extent_ind_check(struct inode *inode,
+					    struct extent_status *es)
 {
 	struct pxt4_map_blocks map;
 	int retval;
@@ -682,12 +682,12 @@ static void pxt4_es_insert_pxt2tent_ind_check(struct inode *inode,
 	if (retval > 0) {
 		if (pxt4_es_is_delayed(es) || pxt4_es_is_hole(es)) {
 			/*
-			 * We want to add a delayed/hole pxt2tent but this
+			 * We want to add a delayed/hole extent but this
 			 * block has been allocated.
 			 */
 			pr_warn("ES insert assertion failed for inode: %lu "
 				"We can find blocks but we want to add a "
-				"delayed/hole pxt2tent [%d/%d/%llu/%x]\n",
+				"delayed/hole extent [%d/%d/%llu/%x]\n",
 				inode->i_ino, es->es_lblk, es->es_len,
 				pxt4_es_pblock(es), pxt4_es_status(es));
 			return;
@@ -708,7 +708,7 @@ static void pxt4_es_insert_pxt2tent_ind_check(struct inode *inode,
 			}
 		} else {
 			/*
-			 * We don't need to check unwritten pxt2tent because
+			 * We don't need to check unwritten extent because
 			 * indirect-based file doesn't have it.
 			 */
 			BUG();
@@ -717,7 +717,7 @@ static void pxt4_es_insert_pxt2tent_ind_check(struct inode *inode,
 		if (pxt4_es_is_written(es)) {
 			pr_warn("ES insert assertion failed for inode: %lu "
 				"We can't find the block but we want to add "
-				"a written pxt2tent [%d/%d/%llu/%x]\n",
+				"a written extent [%d/%d/%llu/%x]\n",
 				inode->i_ino, es->es_lblk, es->es_len,
 				pxt4_es_pblock(es), pxt4_es_status(es));
 			return;
@@ -725,8 +725,8 @@ static void pxt4_es_insert_pxt2tent_ind_check(struct inode *inode,
 	}
 }
 
-static inline void pxt4_es_insert_pxt2tent_check(struct inode *inode,
-					       struct pxt2tent_status *es)
+static inline void pxt4_es_insert_extent_check(struct inode *inode,
+					       struct extent_status *es)
 {
 	/*
 	 * We don't need to worry about the race condition because
@@ -734,27 +734,27 @@ static inline void pxt4_es_insert_pxt2tent_check(struct inode *inode,
 	 */
 	BUG_ON(!rwsem_is_locked(&PXT4_I(inode)->i_data_sem));
 	if (pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS))
-		pxt4_es_insert_pxt2tent_pxt2t_check(inode, es);
+		pxt4_es_insert_extent_ext_check(inode, es);
 	else
-		pxt4_es_insert_pxt2tent_ind_check(inode, es);
+		pxt4_es_insert_extent_ind_check(inode, es);
 }
 #else
-static inline void pxt4_es_insert_pxt2tent_check(struct inode *inode,
-					       struct pxt2tent_status *es)
+static inline void pxt4_es_insert_extent_check(struct inode *inode,
+					       struct extent_status *es)
 {
 }
 #endif
 
-static int __es_insert_pxt2tent(struct inode *inode, struct pxt2tent_status *newes)
+static int __es_insert_extent(struct inode *inode, struct extent_status *newes)
 {
 	struct pxt4_es_tree *tree = &PXT4_I(inode)->i_es_tree;
 	struct rb_node **p = &tree->root.rb_node;
 	struct rb_node *parent = NULL;
-	struct pxt2tent_status *es;
+	struct extent_status *es;
 
 	while (*p) {
 		parent = *p;
-		es = rb_entry(parent, struct pxt2tent_status, rb_node);
+		es = rb_entry(parent, struct extent_status, rb_node);
 
 		if (newes->es_lblk < es->es_lblk) {
 			if (pxt4_es_can_be_merged(newes, es)) {
@@ -785,7 +785,7 @@ static int __es_insert_pxt2tent(struct inode *inode, struct pxt2tent_status *new
 		}
 	}
 
-	es = pxt4_es_alloc_pxt2tent(inode, newes->es_lblk, newes->es_len,
+	es = pxt4_es_alloc_extent(inode, newes->es_lblk, newes->es_len,
 				  newes->es_pblk);
 	if (!es)
 		return -ENOMEM;
@@ -798,21 +798,21 @@ out:
 }
 
 /*
- * pxt4_es_insert_pxt2tent() adds information to an inode's pxt2tent
+ * pxt4_es_insert_extent() adds information to an inode's extent
  * status tree.
  *
  * Return 0 on success, error code on failure.
  */
-int pxt4_es_insert_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
+int pxt4_es_insert_extent(struct inode *inode, pxt4_lblk_t lblk,
 			  pxt4_lblk_t len, pxt4_fsblk_t pblk,
 			  unsigned int status)
 {
-	struct pxt2tent_status newes;
+	struct extent_status newes;
 	pxt4_lblk_t end = lblk + len - 1;
 	int err = 0;
 	struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
 
-	es_debug("add [%u/%u) %llu %x to pxt2tent status tree of inode %lu\n",
+	es_debug("add [%u/%u) %llu %x to extent status tree of inode %lu\n",
 		 lblk, len, pblk, status, inode->i_ino);
 
 	if (!len)
@@ -822,7 +822,7 @@ int pxt4_es_insert_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
 
 	if ((status & EXTENT_STATUS_DELAYED) &&
 	    (status & EXTENT_STATUS_WRITTEN)) {
-		pxt4_warning(inode->i_sb, "Inserting pxt2tent [%u/%u] as "
+		pxt4_warning(inode->i_sb, "Inserting extent [%u/%u] as "
 				" delayed and written which can potentially "
 				" cause data loss.", lblk, len);
 		WARN_ON(1);
@@ -831,16 +831,16 @@ int pxt4_es_insert_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
 	newes.es_lblk = lblk;
 	newes.es_len = len;
 	pxt4_es_store_pblock_status(&newes, pblk, status);
-	trace_pxt4_es_insert_pxt2tent(inode, &newes);
+	trace_pxt4_es_insert_extent(inode, &newes);
 
-	pxt4_es_insert_pxt2tent_check(inode, &newes);
+	pxt4_es_insert_extent_check(inode, &newes);
 
 	write_lock(&PXT4_I(inode)->i_es_lock);
-	err = __es_remove_pxt2tent(inode, lblk, end, NULL);
+	err = __es_remove_extent(inode, lblk, end, NULL);
 	if (err != 0)
 		goto error;
 retry:
-	err = __es_insert_pxt2tent(inode, &newes);
+	err = __es_insert_extent(inode, &newes);
 	if (err == -ENOMEM && __es_shrink(PXT4_SB(inode->i_sb),
 					  128, PXT4_I(inode)))
 		goto retry;
@@ -861,22 +861,22 @@ error:
 }
 
 /*
- * pxt4_es_cache_pxt2tent() inserts information into the pxt2tent status
+ * pxt4_es_cache_extent() inserts information into the extent status
  * tree if and only if there isn't information about the range in
  * question already.
  */
-void pxt4_es_cache_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
+void pxt4_es_cache_extent(struct inode *inode, pxt4_lblk_t lblk,
 			  pxt4_lblk_t len, pxt4_fsblk_t pblk,
 			  unsigned int status)
 {
-	struct pxt2tent_status *es;
-	struct pxt2tent_status newes;
+	struct extent_status *es;
+	struct extent_status newes;
 	pxt4_lblk_t end = lblk + len - 1;
 
 	newes.es_lblk = lblk;
 	newes.es_len = len;
 	pxt4_es_store_pblock_status(&newes, pblk, status);
-	trace_pxt4_es_cache_pxt2tent(inode, &newes);
+	trace_pxt4_es_cache_extent(inode, &newes);
 
 	if (!len)
 		return;
@@ -887,34 +887,34 @@ void pxt4_es_cache_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
 
 	es = __es_tree_search(&PXT4_I(inode)->i_es_tree.root, lblk);
 	if (!es || es->es_lblk > end)
-		__es_insert_pxt2tent(inode, &newes);
+		__es_insert_extent(inode, &newes);
 	write_unlock(&PXT4_I(inode)->i_es_lock);
 }
 
 /*
- * pxt4_es_lookup_pxt2tent() looks up an pxt2tent in pxt2tent status tree.
+ * pxt4_es_lookup_extent() looks up an extent in extent status tree.
  *
- * pxt4_es_lookup_pxt2tent is called by pxt4_map_blocks/pxt4_da_map_blocks.
+ * pxt4_es_lookup_extent is called by pxt4_map_blocks/pxt4_da_map_blocks.
  *
  * Return: 1 on found, 0 on not
  */
-int pxt4_es_lookup_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
-			  pxt4_lblk_t *npxt2t_lblk,
-			  struct pxt2tent_status *es)
+int pxt4_es_lookup_extent(struct inode *inode, pxt4_lblk_t lblk,
+			  pxt4_lblk_t *next_lblk,
+			  struct extent_status *es)
 {
 	struct pxt4_es_tree *tree;
 	struct pxt4_es_stats *stats;
-	struct pxt2tent_status *es1 = NULL;
+	struct extent_status *es1 = NULL;
 	struct rb_node *node;
 	int found = 0;
 
-	trace_pxt4_es_lookup_pxt2tent_enter(inode, lblk);
-	es_debug("lookup pxt2tent in block %u\n", lblk);
+	trace_pxt4_es_lookup_extent_enter(inode, lblk);
+	es_debug("lookup extent in block %u\n", lblk);
 
 	tree = &PXT4_I(inode)->i_es_tree;
 	read_lock(&PXT4_I(inode)->i_es_lock);
 
-	/* find pxt2tent in cache firstly */
+	/* find extent in cache firstly */
 	es->es_lblk = es->es_len = es->es_pblk = 0;
 	if (tree->cache_es) {
 		es1 = tree->cache_es;
@@ -928,7 +928,7 @@ int pxt4_es_lookup_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
 
 	node = tree->root.rb_node;
 	while (node) {
-		es1 = rb_entry(node, struct pxt2tent_status, rb_node);
+		es1 = rb_entry(node, struct extent_status, rb_node);
 		if (lblk < es1->es_lblk)
 			node = node->rb_left;
 		else if (lblk > pxt4_es_end(es1))
@@ -949,14 +949,14 @@ out:
 		if (!pxt4_es_is_referenced(es1))
 			pxt4_es_set_referenced(es1);
 		percpu_counter_inc(&stats->es_stats_cache_hits);
-		if (npxt2t_lblk) {
-			node = rb_npxt2t(&es1->rb_node);
+		if (next_lblk) {
+			node = rb_next(&es1->rb_node);
 			if (node) {
-				es1 = rb_entry(node, struct pxt2tent_status,
+				es1 = rb_entry(node, struct extent_status,
 					       rb_node);
-				*npxt2t_lblk = es1->es_lblk;
+				*next_lblk = es1->es_lblk;
 			} else
-				*npxt2t_lblk = 0;
+				*next_lblk = 0;
 		}
 	} else {
 		percpu_counter_inc(&stats->es_stats_cache_misses);
@@ -964,7 +964,7 @@ out:
 
 	read_unlock(&PXT4_I(inode)->i_es_lock);
 
-	trace_pxt4_es_lookup_pxt2tent_pxt2it(inode, es, found);
+	trace_pxt4_es_lookup_extent_exit(inode, es, found);
 	return found;
 }
 
@@ -973,24 +973,24 @@ struct rsvd_count {
 	bool first_do_lblk_found;
 	pxt4_lblk_t first_do_lblk;
 	pxt4_lblk_t last_do_lblk;
-	struct pxt2tent_status *left_es;
+	struct extent_status *left_es;
 	bool partial;
 	pxt4_lblk_t lclu;
 };
 
 /*
  * init_rsvd - initialize reserved count data before removing block range
- *	       in file from pxt2tent status tree
+ *	       in file from extent status tree
  *
  * @inode - file containing range
  * @lblk - first block in range
- * @es - pointer to first pxt2tent in range
+ * @es - pointer to first extent in range
  * @rc - pointer to reserved count data
  *
  * Assumes es is not NULL
  */
 static void init_rsvd(struct inode *inode, pxt4_lblk_t lblk,
-		      struct pxt2tent_status *es, struct rsvd_count *rc)
+		      struct extent_status *es, struct rsvd_count *rc)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
 	struct rb_node *node;
@@ -999,7 +999,7 @@ static void init_rsvd(struct inode *inode, pxt4_lblk_t lblk,
 
 	/*
 	 * for bigalloc, note the first delonly block in the range has not
-	 * been found, record the pxt2tent containing the block to the left of
+	 * been found, record the extent containing the block to the left of
 	 * the region to be removed, if any, and note that there's no partial
 	 * cluster to track
 	 */
@@ -1010,7 +1010,7 @@ static void init_rsvd(struct inode *inode, pxt4_lblk_t lblk,
 		} else {
 			node = rb_prev(&es->rb_node);
 			rc->left_es = node ? rb_entry(node,
-						      struct pxt2tent_status,
+						      struct extent_status,
 						      rb_node) : NULL;
 		}
 		rc->partial = false;
@@ -1019,20 +1019,20 @@ static void init_rsvd(struct inode *inode, pxt4_lblk_t lblk,
 
 /*
  * count_rsvd - count the clusters containing delayed and not unwritten
- *		(delonly) blocks in a range within an pxt2tent and add to
+ *		(delonly) blocks in a range within an extent and add to
  *	        the running tally in rsvd_count
  *
- * @inode - file containing pxt2tent
+ * @inode - file containing extent
  * @lblk - first block in range
  * @len - length of range in blocks
- * @es - pointer to pxt2tent containing clusters to be counted
+ * @es - pointer to extent containing clusters to be counted
  * @rc - pointer to reserved count data
  *
- * Tracks partial clusters found at the beginning and end of pxt2tents so
- * they aren't overcounted when they span adjacent pxt2tents
+ * Tracks partial clusters found at the beginning and end of extents so
+ * they aren't overcounted when they span adjacent extents
  */
 static void count_rsvd(struct inode *inode, pxt4_lblk_t lblk, long len,
-		       struct pxt2tent_status *es, struct rsvd_count *rc)
+		       struct extent_status *es, struct rsvd_count *rc)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
 	pxt4_lblk_t i, end, nclu;
@@ -1053,7 +1053,7 @@ static void count_rsvd(struct inode *inode, pxt4_lblk_t lblk, long len,
 	end = lblk + (pxt4_lblk_t) len - 1;
 	end = (end > pxt4_es_end(es)) ? pxt4_es_end(es) : end;
 
-	/* record the first block of the first delonly pxt2tent seen */
+	/* record the first block of the first delonly extent seen */
 	if (rc->first_do_lblk_found == false) {
 		rc->first_do_lblk = i;
 		rc->first_do_lblk_found = true;
@@ -1063,7 +1063,7 @@ static void count_rsvd(struct inode *inode, pxt4_lblk_t lblk, long len,
 	rc->last_do_lblk = end;
 
 	/*
-	 * if we're tracking a partial cluster and the current pxt2tent
+	 * if we're tracking a partial cluster and the current extent
 	 * doesn't start with it, count it and stop tracking
 	 */
 	if (rc->partial && (rc->lclu != PXT4_B2C(sbi, i))) {
@@ -1085,7 +1085,7 @@ static void count_rsvd(struct inode *inode, pxt4_lblk_t lblk, long len,
 
 	/*
 	 * if the current cluster starts on a cluster boundary, count the
-	 * number of whole delonly clusters in the pxt2tent
+	 * number of whole delonly clusters in the extent
 	 */
 	if ((i + sbi->s_cluster_ratio - 1) <= end) {
 		nclu = (end - i + 1) >> sbi->s_cluster_bits;
@@ -1095,7 +1095,7 @@ static void count_rsvd(struct inode *inode, pxt4_lblk_t lblk, long len,
 
 	/*
 	 * start tracking a partial cluster if there's a partial at the end
-	 * of the current pxt2tent and we're not already tracking one
+	 * of the current extent and we're not already tracking one
 	 */
 	if (!rc->partial && i <= end) {
 		rc->partial = true;
@@ -1110,7 +1110,7 @@ static void count_rsvd(struct inode *inode, pxt4_lblk_t lblk, long len,
  * @lclu - logical cluster to search for
  *
  * Returns the pending reservation for the cluster identified by @lclu
- * if found.  If not, returns a reservation for the npxt2t cluster if any,
+ * if found.  If not, returns a reservation for the next cluster if any,
  * and if not, returns NULL.
  */
 static struct pending_reservation *__pr_tree_search(struct rb_root *root,
@@ -1131,7 +1131,7 @@ static struct pending_reservation *__pr_tree_search(struct rb_root *root,
 	if (pr && lclu < pr->lclu)
 		return pr;
 	if (pr && lclu > pr->lclu) {
-		node = rb_npxt2t(&pr->rb_node);
+		node = rb_next(&pr->rb_node);
 		return node ? rb_entry(node, struct pending_reservation,
 				       rb_node) : NULL;
 	}
@@ -1140,12 +1140,12 @@ static struct pending_reservation *__pr_tree_search(struct rb_root *root,
 
 /*
  * get_rsvd - calculates and returns the number of cluster reservations to be
- *	      released when removing a block range from the pxt2tent status tree
+ *	      released when removing a block range from the extent status tree
  *	      and releases any pending reservations within the range
  *
  * @inode - file containing block range
  * @end - last block in range
- * @right_es - pointer to pxt2tent containing npxt2t block beyond end or NULL
+ * @right_es - pointer to extent containing next block beyond end or NULL
  * @rc - pointer to reserved count data
  *
  * The number of reservations to be released is equal to the number of
@@ -1155,7 +1155,7 @@ static struct pending_reservation *__pr_tree_search(struct rb_root *root,
  * within the range.
  */
 static unsigned int get_rsvd(struct inode *inode, pxt4_lblk_t end,
-			     struct pxt2tent_status *right_es,
+			     struct extent_status *right_es,
 			     struct rsvd_count *rc)
 {
 	struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
@@ -1164,7 +1164,7 @@ static unsigned int get_rsvd(struct inode *inode, pxt4_lblk_t end,
 	struct rb_node *node;
 	pxt4_lblk_t first_lclu, last_lclu;
 	bool left_delonly, right_delonly, count_pending;
-	struct pxt2tent_status *es;
+	struct extent_status *es;
 
 	if (sbi->s_cluster_ratio > 1) {
 		/* count any remaining partial cluster */
@@ -1195,14 +1195,14 @@ static unsigned int get_rsvd(struct inode *inode, pxt4_lblk_t end,
 			node = rb_prev(&es->rb_node);
 			if (!node)
 				break;
-			es = rb_entry(node, struct pxt2tent_status, rb_node);
+			es = rb_entry(node, struct extent_status, rb_node);
 		}
 		if (right_es && (!left_delonly || first_lclu != last_lclu)) {
 			if (end < pxt4_es_end(right_es)) {
 				es = right_es;
 			} else {
-				node = rb_npxt2t(&right_es->rb_node);
-				es = node ? rb_entry(node, struct pxt2tent_status,
+				node = rb_next(&right_es->rb_node);
+				es = node ? rb_entry(node, struct extent_status,
 						     rb_node) : NULL;
 			}
 			while (es && es->es_lblk <=
@@ -1212,10 +1212,10 @@ static unsigned int get_rsvd(struct inode *inode, pxt4_lblk_t end,
 					right_delonly = true;
 					break;
 				}
-				node = rb_npxt2t(&es->rb_node);
+				node = rb_next(&es->rb_node);
 				if (!node)
 					break;
-				es = rb_entry(node, struct pxt2tent_status,
+				es = rb_entry(node, struct extent_status,
 					      rb_node);
 			}
 		}
@@ -1224,10 +1224,10 @@ static unsigned int get_rsvd(struct inode *inode, pxt4_lblk_t end,
 		 * Determine the block range that should be searched for
 		 * pending reservations, if any.  Clusters on the ends of the
 		 * original removed range containing delonly blocks are
-		 * pxt2cluded.  They've already been accounted for and it's not
+		 * excluded.  They've already been accounted for and it's not
 		 * possible to determine if an associated pending reservation
 		 * should be released with the information available in the
-		 * pxt2tents status tree.
+		 * extents status tree.
 		 */
 		if (first_lclu == last_lclu) {
 			if (left_delonly | right_delonly)
@@ -1255,7 +1255,7 @@ static unsigned int get_rsvd(struct inode *inode, pxt4_lblk_t end,
 			pr = __pr_tree_search(&tree->root, first_lclu);
 			while (pr && pr->lclu <= last_lclu) {
 				rc->ndelonly--;
-				node = rb_npxt2t(&pr->rb_node);
+				node = rb_next(&pr->rb_node);
 				rb_erase(&pr->rb_node, &tree->root);
 				kmem_cache_free(pxt4_pending_cachep, pr);
 				if (!node)
@@ -1270,7 +1270,7 @@ static unsigned int get_rsvd(struct inode *inode, pxt4_lblk_t end,
 
 
 /*
- * __es_remove_pxt2tent - removes block range from pxt2tent status tree
+ * __es_remove_extent - removes block range from extent status tree
  *
  * @inode - file containing range
  * @lblk - first block in range
@@ -1282,13 +1282,13 @@ static unsigned int get_rsvd(struct inode *inode, pxt4_lblk_t end,
  * enabled cancels pending reservations as needed. Returns 0 on success,
  * error code on failure.
  */
-static int __es_remove_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
+static int __es_remove_extent(struct inode *inode, pxt4_lblk_t lblk,
 			      pxt4_lblk_t end, int *reserved)
 {
 	struct pxt4_es_tree *tree = &PXT4_I(inode)->i_es_tree;
 	struct rb_node *node;
-	struct pxt2tent_status *es;
-	struct pxt2tent_status orig_es;
+	struct extent_status *es;
+	struct extent_status orig_es;
 	pxt4_lblk_t len1, len2;
 	pxt4_fsblk_t block;
 	int err;
@@ -1321,7 +1321,7 @@ retry:
 		es->es_len = len1;
 	if (len2 > 0) {
 		if (len1 > 0) {
-			struct pxt2tent_status newes;
+			struct extent_status newes;
 
 			newes.es_lblk = end + 1;
 			newes.es_len = len2;
@@ -1332,7 +1332,7 @@ retry:
 					orig_es.es_len - len2;
 			pxt4_es_store_pblock_status(&newes, block,
 						    pxt4_es_status(&orig_es));
-			err = __es_insert_pxt2tent(inode, &newes);
+			err = __es_insert_extent(inode, &newes);
 			if (err) {
 				es->es_lblk = orig_es.es_lblk;
 				es->es_len = orig_es.es_len;
@@ -1361,9 +1361,9 @@ retry:
 		if (count_reserved)
 			count_rsvd(inode, lblk, orig_es.es_len - len1,
 				   &orig_es, &rc);
-		node = rb_npxt2t(&es->rb_node);
+		node = rb_next(&es->rb_node);
 		if (node)
-			es = rb_entry(node, struct pxt2tent_status, rb_node);
+			es = rb_entry(node, struct extent_status, rb_node);
 		else
 			es = NULL;
 	}
@@ -1371,14 +1371,14 @@ retry:
 	while (es && pxt4_es_end(es) <= end) {
 		if (count_reserved)
 			count_rsvd(inode, es->es_lblk, es->es_len, es, &rc);
-		node = rb_npxt2t(&es->rb_node);
+		node = rb_next(&es->rb_node);
 		rb_erase(&es->rb_node, &tree->root);
-		pxt4_es_free_pxt2tent(inode, es);
+		pxt4_es_free_extent(inode, es);
 		if (!node) {
 			es = NULL;
 			break;
 		}
-		es = rb_entry(node, struct pxt2tent_status, rb_node);
+		es = rb_entry(node, struct extent_status, rb_node);
 	}
 
 	if (es && es->es_lblk < end + 1) {
@@ -1403,7 +1403,7 @@ out:
 }
 
 /*
- * pxt4_es_remove_pxt2tent - removes block range from pxt2tent status tree
+ * pxt4_es_remove_extent - removes block range from extent status tree
  *
  * @inode - file containing range
  * @lblk - first block in range
@@ -1412,15 +1412,15 @@ out:
  * Reduces block/cluster reservation count and for bigalloc cancels pending
  * reservations as needed. Returns 0 on success, error code on failure.
  */
-int pxt4_es_remove_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
+int pxt4_es_remove_extent(struct inode *inode, pxt4_lblk_t lblk,
 			  pxt4_lblk_t len)
 {
 	pxt4_lblk_t end;
 	int err = 0;
 	int reserved = 0;
 
-	trace_pxt4_es_remove_pxt2tent(inode, lblk, len);
-	es_debug("remove [%u/%u) from pxt2tent status tree of inode %lu\n",
+	trace_pxt4_es_remove_extent(inode, lblk, len);
+	es_debug("remove [%u/%u) from extent status tree of inode %lu\n",
 		 lblk, len, inode->i_ino);
 
 	if (!len)
@@ -1435,7 +1435,7 @@ int pxt4_es_remove_pxt2tent(struct inode *inode, pxt4_lblk_t lblk,
 	 * is reclaimed.
 	 */
 	write_lock(&PXT4_I(inode)->i_es_lock);
-	err = __es_remove_pxt2tent(inode, lblk, end, &reserved);
+	err = __es_remove_extent(inode, lblk, end, &reserved);
 	write_unlock(&PXT4_I(inode)->i_es_lock);
 	pxt4_es_print_tree(inode);
 	pxt4_da_release_space(inode, reserved);
@@ -1489,7 +1489,7 @@ retry:
 		 */
 		spin_unlock(&sbi->s_es_lock);
 
-		nr_shrunk += es_reclaim_pxt2tents(ei, &nr_to_scan);
+		nr_shrunk += es_reclaim_extents(ei, &nr_to_scan);
 		write_unlock(&ei->i_es_lock);
 
 		if (nr_to_scan <= 0)
@@ -1508,7 +1508,7 @@ retry:
 	}
 
 	if (locked_ei && nr_shrunk == 0)
-		nr_shrunk = es_reclaim_pxt2tents(locked_ei, &nr_to_scan);
+		nr_shrunk = es_reclaim_extents(locked_ei, &nr_to_scan);
 
 out:
 	scan_time = ktime_to_ns(ktime_sub(ktime_get(), start_time));
@@ -1558,7 +1558,7 @@ static unsigned long pxt4_es_scan(struct shrinker *shrink,
 
 	nr_shrunk = __es_shrink(sbi, nr_to_scan, NULL);
 
-	trace_pxt4_es_shrink_scan_pxt2it(sbi->s_sb, nr_shrunk, ret);
+	trace_pxt4_es_shrink_scan_exit(sbi->s_sb, nr_shrunk, ret);
 	return nr_shrunk;
 }
 
@@ -1661,19 +1661,19 @@ void pxt4_es_unregister_shrinker(struct pxt4_sb_info *sbi)
 }
 
 /*
- * Shrink pxt2tents in given inode from ei->i_es_shrink_lblk till end. Scan at
- * most *nr_to_scan pxt2tents, update *nr_to_scan accordingly.
+ * Shrink extents in given inode from ei->i_es_shrink_lblk till end. Scan at
+ * most *nr_to_scan extents, update *nr_to_scan accordingly.
  *
- * Return 0 if we hit end of tree / interval, 1 if we pxt2hausted nr_to_scan.
- * Increment *nr_shrunk by the number of reclaimed pxt2tents. Also update
+ * Return 0 if we hit end of tree / interval, 1 if we exhausted nr_to_scan.
+ * Increment *nr_shrunk by the number of reclaimed extents. Also update
  * ei->i_es_shrink_lblk to where we should continue scanning.
  */
-static int es_do_reclaim_pxt2tents(struct pxt4_inode_info *ei, pxt4_lblk_t end,
+static int es_do_reclaim_extents(struct pxt4_inode_info *ei, pxt4_lblk_t end,
 				 int *nr_to_scan, int *nr_shrunk)
 {
 	struct inode *inode = &ei->vfs_inode;
 	struct pxt4_es_tree *tree = &ei->i_es_tree;
-	struct pxt2tent_status *es;
+	struct extent_status *es;
 	struct rb_node *node;
 
 	es = __es_tree_search(&tree->root, ei->i_es_shrink_lblk);
@@ -1687,25 +1687,25 @@ static int es_do_reclaim_pxt2tents(struct pxt4_inode_info *ei, pxt4_lblk_t end,
 		}
 
 		(*nr_to_scan)--;
-		node = rb_npxt2t(&es->rb_node);
+		node = rb_next(&es->rb_node);
 		/*
-		 * We can't reclaim delayed pxt2tent from status tree because
+		 * We can't reclaim delayed extent from status tree because
 		 * fiemap, bigallic, and seek_data/hole need to use it.
 		 */
 		if (pxt4_es_is_delayed(es))
-			goto npxt2t;
+			goto next;
 		if (pxt4_es_is_referenced(es)) {
 			pxt4_es_clear_referenced(es);
-			goto npxt2t;
+			goto next;
 		}
 
 		rb_erase(&es->rb_node, &tree->root);
-		pxt4_es_free_pxt2tent(inode, es);
+		pxt4_es_free_extent(inode, es);
 		(*nr_shrunk)++;
-npxt2t:
+next:
 		if (!node)
 			goto out_wrap;
-		es = rb_entry(node, struct pxt2tent_status, rb_node);
+		es = rb_entry(node, struct extent_status, rb_node);
 	}
 	ei->i_es_shrink_lblk = es->es_lblk;
 	return 1;
@@ -1714,7 +1714,7 @@ out_wrap:
 	return 0;
 }
 
-static int es_reclaim_pxt2tents(struct pxt4_inode_info *ei, int *nr_to_scan)
+static int es_reclaim_extents(struct pxt4_inode_info *ei, int *nr_to_scan)
 {
 	struct inode *inode = &ei->vfs_inode;
 	int nr_shrunk = 0;
@@ -1727,11 +1727,11 @@ static int es_reclaim_pxt2tents(struct pxt4_inode_info *ei, int *nr_to_scan)
 
 	if (pxt4_test_inode_state(inode, PXT4_STATE_EXT_PRECACHED) &&
 	    __ratelimit(&_rs))
-		pxt4_warning(inode->i_sb, "forced shrink of precached pxt2tents");
+		pxt4_warning(inode->i_sb, "forced shrink of precached extents");
 
-	if (!es_do_reclaim_pxt2tents(ei, EXT_MAX_BLOCKS, nr_to_scan, &nr_shrunk) &&
+	if (!es_do_reclaim_extents(ei, EXT_MAX_BLOCKS, nr_to_scan, &nr_shrunk) &&
 	    start != 0)
-		es_do_reclaim_pxt2tents(ei, start - 1, nr_to_scan, &nr_shrunk);
+		es_do_reclaim_extents(ei, start - 1, nr_to_scan, &nr_shrunk);
 
 	ei->i_es_tree.cache_es = NULL;
 	return nr_shrunk;
@@ -1739,13 +1739,13 @@ static int es_reclaim_pxt2tents(struct pxt4_inode_info *ei, int *nr_to_scan)
 
 /*
  * Called to support PXT4_IOC_CLEAR_ES_CACHE.  We can only remove
- * discretionary entries from the pxt2tent status cache.  (Some entries
+ * discretionary entries from the extent status cache.  (Some entries
  * must be present for proper operations.)
  */
 void pxt4_clear_inode_es(struct inode *inode)
 {
 	struct pxt4_inode_info *ei = PXT4_I(inode);
-	struct pxt2tent_status *es;
+	struct extent_status *es;
 	struct pxt4_es_tree *tree;
 	struct rb_node *node;
 
@@ -1754,11 +1754,11 @@ void pxt4_clear_inode_es(struct inode *inode)
 	tree->cache_es = NULL;
 	node = rb_first(&tree->root);
 	while (node) {
-		es = rb_entry(node, struct pxt2tent_status, rb_node);
-		node = rb_npxt2t(node);
+		es = rb_entry(node, struct extent_status, rb_node);
+		node = rb_next(node);
 		if (!pxt4_es_is_delayed(es)) {
 			rb_erase(&es->rb_node, &tree->root);
-			pxt4_es_free_pxt2tent(inode, es);
+			pxt4_es_free_extent(inode, es);
 		}
 	}
 	pxt4_clear_inode_state(inode, PXT4_STATE_EXT_PRECACHED);
@@ -1778,7 +1778,7 @@ static void pxt4_print_pending_tree(struct inode *inode)
 	while (node) {
 		pr = rb_entry(node, struct pending_reservation, rb_node);
 		printk(KERN_DEBUG " %u", pr->lclu);
-		node = rb_npxt2t(node);
+		node = rb_next(node);
 	}
 	printk(KERN_DEBUG "\n");
 }
@@ -1796,7 +1796,7 @@ int __init pxt4_init_pending(void)
 	return 0;
 }
 
-void pxt4_pxt2it_pending(void)
+void pxt4_exit_pending(void)
 {
 	kmem_cache_destroy(pxt4_pending_cachep);
 }
@@ -1917,7 +1917,7 @@ static void __remove_pending(struct inode *inode, pxt4_lblk_t lblk)
  * @inode - file containing the cluster
  * @lblk - logical block in the pending cluster reservation to be removed
  *
- * Locking for pxt2ternal use of __remove_pending.
+ * Locking for external use of __remove_pending.
  */
 void pxt4_remove_pending(struct inode *inode, pxt4_lblk_t lblk)
 {
@@ -1952,7 +1952,7 @@ bool pxt4_is_pending(struct inode *inode, pxt4_lblk_t lblk)
 }
 
 /*
- * pxt4_es_insert_delayed_block - adds a delayed block to the pxt2tents status
+ * pxt4_es_insert_delayed_block - adds a delayed block to the extents status
  *                                tree, adding a pending reservation where
  *                                needed
  *
@@ -1966,10 +1966,10 @@ bool pxt4_is_pending(struct inode *inode, pxt4_lblk_t lblk)
 int pxt4_es_insert_delayed_block(struct inode *inode, pxt4_lblk_t lblk,
 				 bool allocated)
 {
-	struct pxt2tent_status newes;
+	struct extent_status newes;
 	int err = 0;
 
-	es_debug("add [%u/1) delayed to pxt2tent status tree of inode %lu\n",
+	es_debug("add [%u/1) delayed to extent status tree of inode %lu\n",
 		 lblk, inode->i_ino);
 
 	newes.es_lblk = lblk;
@@ -1977,15 +1977,15 @@ int pxt4_es_insert_delayed_block(struct inode *inode, pxt4_lblk_t lblk,
 	pxt4_es_store_pblock_status(&newes, ~0, EXTENT_STATUS_DELAYED);
 	trace_pxt4_es_insert_delayed_block(inode, &newes, allocated);
 
-	pxt4_es_insert_pxt2tent_check(inode, &newes);
+	pxt4_es_insert_extent_check(inode, &newes);
 
 	write_lock(&PXT4_I(inode)->i_es_lock);
 
-	err = __es_remove_pxt2tent(inode, lblk, lblk, NULL);
+	err = __es_remove_extent(inode, lblk, lblk, NULL);
 	if (err != 0)
 		goto error;
 retry:
-	err = __es_insert_pxt2tent(inode, &newes);
+	err = __es_insert_extent(inode, &newes);
 	if (err == -ENOMEM && __es_shrink(PXT4_SB(inode->i_sb),
 					  128, PXT4_I(inode)))
 		goto retry;
@@ -2021,7 +2021,7 @@ static unsigned int __es_delayed_clu(struct inode *inode, pxt4_lblk_t start,
 				     pxt4_lblk_t end)
 {
 	struct pxt4_es_tree *tree = &PXT4_I(inode)->i_es_tree;
-	struct pxt2tent_status *es;
+	struct extent_status *es;
 	struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
 	struct rb_node *node;
 	pxt4_lblk_t first_lclu, last_lclu;
@@ -2051,10 +2051,10 @@ static unsigned int __es_delayed_clu(struct inode *inode, pxt4_lblk_t start,
 				n += last_lclu - first_lclu + 1;
 			last_counted_lclu = last_lclu;
 		}
-		node = rb_npxt2t(&es->rb_node);
+		node = rb_next(&es->rb_node);
 		if (!node)
 			break;
-		es = rb_entry(node, struct pxt2tent_status, rb_node);
+		es = rb_entry(node, struct extent_status, rb_node);
 	}
 
 	return n;
@@ -2068,7 +2068,7 @@ static unsigned int __es_delayed_clu(struct inode *inode, pxt4_lblk_t start,
  * @lblk - logical block defining start of range
  * @len - number of blocks in range
  *
- * Locking for pxt2ternal use of __es_delayed_clu().
+ * Locking for external use of __es_delayed_clu().
  */
 unsigned int pxt4_es_delayed_clu(struct inode *inode, pxt4_lblk_t lblk,
 				 pxt4_lblk_t len)
@@ -2103,8 +2103,8 @@ unsigned int pxt4_es_delayed_clu(struct inode *inode, pxt4_lblk_t lblk,
  * @lblk - logical block defining the start of range
  * @len  - length of range in blocks
  *
- * Used after a newly allocated pxt2tent is added to the pxt2tents status tree.
- * Requires that the pxt2tents in the range have either written or unwritten
+ * Used after a newly allocated extent is added to the extents status tree.
+ * Requires that the extents in the range have either written or unwritten
  * status.  Must be called while holding i_es_lock.
  */
 static void __revise_pending(struct inode *inode, pxt4_lblk_t lblk,
@@ -2122,13 +2122,13 @@ static void __revise_pending(struct inode *inode, pxt4_lblk_t lblk,
 	 * Two cases - block range within single cluster and block range
 	 * spanning two or more clusters.  Note that a cluster belonging
 	 * to a range starting and/or ending on a cluster boundary is treated
-	 * as if it does not contain a delayed pxt2tent.  The new range may
+	 * as if it does not contain a delayed extent.  The new range may
 	 * have allocated space for previously delayed blocks out to the
-	 * cluster boundary, requiring that any pre-pxt2isting pending
+	 * cluster boundary, requiring that any pre-existing pending
 	 * reservation be canceled.  Because this code only looks at blocks
 	 * outside the range, it should revise pending reservations
-	 * correctly even if the pxt2tent represented by the range can't be
-	 * inserted in the pxt2tents status tree due to ENOSPC.
+	 * correctly even if the extent represented by the range can't be
+	 * inserted in the extents status tree due to ENOSPC.
 	 */
 
 	if (PXT4_B2C(sbi, lblk) == PXT4_B2C(sbi, end)) {

@@ -1,8 +1,8 @@
-cmd_fs/ext4/verity.o := gcc -Wp,-MD,fs/ext4/.verity.o.d  -nostdinc -isystem /usr/lib/gcc/x86_64-linux-gnu/9/include -I./arch/x86/include -I./arch/x86/include/generated  -I./include -I./arch/x86/include/uapi -I./arch/x86/include/generated/uapi -I./include/uapi -I./include/generated/uapi -include ./include/linux/kconfig.h -include ./include/linux/compiler_types.h -D__KERNEL__ -Wall -Wundef -Werror=strict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -fshort-wchar -fno-PIE -Werror=implicit-function-declaration -Werror=implicit-int -Wno-format-security -std=gnu89 -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -m64 -falign-jumps=1 -falign-loops=1 -mno-80387 -mno-fp-ret-in-387 -mpreferred-stack-boundary=3 -mskip-rax-setup -mtune=generic -mno-red-zone -mcmodel=kernel -DCONFIG_X86_X32_ABI -DCONFIG_AS_CFI=1 -DCONFIG_AS_CFI_SIGNAL_FRAME=1 -DCONFIG_AS_CFI_SECTIONS=1 -DCONFIG_AS_SSSE3=1 -DCONFIG_AS_AVX=1 -DCONFIG_AS_AVX2=1 -DCONFIG_AS_AVX512=1 -DCONFIG_AS_SHA1_NI=1 -DCONFIG_AS_SHA256_NI=1 -Wno-sign-compare -fno-asynchronous-unwind-tables -mindirect-branch=thunk-extern -mindirect-branch-register -fno-jump-tables -fno-delete-null-pointer-checks -Wno-frame-address -Wno-format-truncation -Wno-format-overflow -Wno-address-of-packed-member -O2 --param=allow-store-data-races=0 -Wframe-larger-than=1024 -fstack-protector-strong -Wno-unused-but-set-variable -Wimplicit-fallthrough -Wno-unused-const-variable -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-var-tracking-assignments -g -gdwarf-4 -pg -mrecord-mcount -mfentry -DCC_USING_FENTRY -flive-patching=inline-clone -Wdeclaration-after-statement -Wvla -Wno-pointer-sign -Wno-stringop-truncation -Wno-array-bounds -Wno-stringop-overflow -Wno-restrict -Wno-maybe-uninitialized -fno-strict-overflow -fno-merge-all-constants -fmerge-constants -fno-stack-check -fconserve-stack -Werror=date-time -Werror=incompatible-pointer-types -Werror=designated-init -fmacro-prefix-map=./= -fcf-protection=none -Wno-packed-not-aligned    -DKBUILD_BASENAME='"verity"' -DKBUILD_MODNAME='"ext4"' -c -o fs/ext4/verity.o fs/ext4/verity.c
+cmd_/home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.o := gcc -Wp,-MD,/home/shkim7876/바탕화면/Linux_Kernel/pxt4/.verity.o.d  -nostdinc -isystem /usr/lib/gcc/x86_64-linux-gnu/9/include -I./arch/x86/include -I./arch/x86/include/generated  -I./include -I./arch/x86/include/uapi -I./arch/x86/include/generated/uapi -I./include/uapi -I./include/generated/uapi -include ./include/linux/kconfig.h -include ./include/linux/compiler_types.h -D__KERNEL__ -Wall -Wundef -Werror=strict-prototypes -Wno-trigraphs -fno-strict-aliasing -fno-common -fshort-wchar -fno-PIE -Werror=implicit-function-declaration -Werror=implicit-int -Wno-format-security -std=gnu89 -mno-sse -mno-mmx -mno-sse2 -mno-3dnow -mno-avx -m64 -falign-jumps=1 -falign-loops=1 -mno-80387 -mno-fp-ret-in-387 -mpreferred-stack-boundary=3 -mskip-rax-setup -mtune=generic -mno-red-zone -mcmodel=kernel -DCONFIG_X86_X32_ABI -DCONFIG_AS_CFI=1 -DCONFIG_AS_CFI_SIGNAL_FRAME=1 -DCONFIG_AS_CFI_SECTIONS=1 -DCONFIG_AS_SSSE3=1 -DCONFIG_AS_AVX=1 -DCONFIG_AS_AVX2=1 -DCONFIG_AS_AVX512=1 -DCONFIG_AS_SHA1_NI=1 -DCONFIG_AS_SHA256_NI=1 -Wno-sign-compare -fno-asynchronous-unwind-tables -mindirect-branch=thunk-extern -mindirect-branch-register -fno-jump-tables -fno-delete-null-pointer-checks -Wno-frame-address -Wno-format-truncation -Wno-format-overflow -Wno-address-of-packed-member -O2 --param=allow-store-data-races=0 -Wframe-larger-than=1024 -fstack-protector-strong -Wno-unused-but-set-variable -Wimplicit-fallthrough -Wno-unused-const-variable -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-var-tracking-assignments -g -gdwarf-4 -pg -mrecord-mcount -mfentry -DCC_USING_FENTRY -flive-patching=inline-clone -Wdeclaration-after-statement -Wvla -Wno-pointer-sign -Wno-stringop-truncation -Wno-array-bounds -Wno-stringop-overflow -Wno-restrict -Wno-maybe-uninitialized -fno-strict-overflow -fno-merge-all-constants -fmerge-constants -fno-stack-check -fconserve-stack -Werror=date-time -Werror=incompatible-pointer-types -Werror=designated-init -fmacro-prefix-map=./= -fcf-protection=none -Wno-packed-not-aligned  -DMODULE  -DKBUILD_BASENAME='"verity"' -DKBUILD_MODNAME='"pxt4"' -c -o /home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.o /home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.c
 
-source_fs/ext4/verity.o := fs/ext4/verity.c
+source_/home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.o := /home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.c
 
-deps_fs/ext4/verity.o := \
+deps_/home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.o := \
   include/linux/kconfig.h \
     $(wildcard include/config/cpu/big/endian.h) \
     $(wildcard include/config/booger.h) \
@@ -778,7 +778,7 @@ deps_fs/ext4/verity.o := \
   include/linux/projid.h \
   include/uapi/linux/quota.h \
   include/linux/nfs_fs_i.h \
-  fs/ext4/ext4.h \
+  /home/shkim7876/바탕화면/Linux_Kernel/pxt4/pxt4.h \
     $(wildcard include/config/unicode.h) \
   include/linux/blkdev.h \
     $(wildcard include/config/blk/rq/alloc/time.h) \
@@ -946,10 +946,10 @@ deps_fs/ext4/verity.o := \
   include/linux/elevator.h \
   include/linux/hashtable.h \
   include/uapi/linux/magic.h \
-  include/linux/jbd2.h \
-    $(wildcard include/config/jbd2/debug.h) \
+  include/linux/jbd3.h \
+    $(wildcard include/config/jbd3/debug.h) \
   include/linux/buffer_head.h \
-  include/linux/journal-head.h \
+  include/linux/journal-head3.h \
   include/crypto/hash.h \
   include/linux/crypto.h \
     $(wildcard include/config/crypto/stats.h) \
@@ -1010,10 +1010,10 @@ deps_fs/ext4/verity.o := \
   include/uapi/linux/fscrypt.h \
   include/linux/fsverity.h \
   include/uapi/linux/fsverity.h \
-  fs/ext4/extents_status.h \
-  fs/ext4/ext4_extents.h \
-  fs/ext4/ext4_jbd2.h \
+  /home/shkim7876/바탕화면/Linux_Kernel/pxt4/extents_status.h \
+  /home/shkim7876/바탕화면/Linux_Kernel/pxt4/pxt4_extents.h \
+  /home/shkim7876/바탕화면/Linux_Kernel/pxt4/pxt4_jbd3.h \
 
-fs/ext4/verity.o: $(deps_fs/ext4/verity.o)
+/home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.o: $(deps_/home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.o)
 
-$(deps_fs/ext4/verity.o):
+$(deps_/home/shkim7876/바탕화면/Linux_Kernel/pxt4/verity.o):

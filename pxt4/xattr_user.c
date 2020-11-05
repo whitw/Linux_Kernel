@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * linux/fs/pxt4/xattr_user.c
- * Handler for pxt2tended user attributes.
+ * Handler for extended user attributes.
  *
  * Copyright (C) 2001 by Andreas Gruenbacher, <a.gruenbacher@computer.org>
  */

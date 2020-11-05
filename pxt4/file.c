@@ -113,7 +113,7 @@ static void pxt4_unwritten_wait(struct inode *inode)
 
 /*
  * This tests whether the IO in question is block-aligned or not.
- * Ext4 utilizes unwritten pxt2tents when hole-filling during direct IO, and they
+ * Ext4 utilizes unwritten extents when hole-filling during direct IO, and they
  * are converted to written only after the IO is complete.  Until they are
  * mapped, these blocks appear as holes, so dio_zero_block() will assume that
  * it needs to zero out portions of the start and/or end block.  If 2 AIO
@@ -152,8 +152,8 @@ static bool pxt4_overwrite_io(struct inode *inode, loff_t pos, loff_t len)
 	err = pxt4_map_blocks(NULL, inode, &map, 0);
 	/*
 	 * 'err==len' means that all of the blocks have been preallocated,
-	 * regardless of whether they have been initialized or not. To pxt2clude
-	 * unwritten pxt2tents, we need to check m_flags.
+	 * regardless of whether they have been initialized or not. To exclude
+	 * unwritten extents, we need to check m_flags.
 	 */
 	return err == blklen && (map.m_flags & PXT4_MAP_MAPPED);
 }
@@ -172,7 +172,7 @@ static ssize_t pxt4_write_checks(struct kiocb *iocb, struct iov_iter *from)
 
 	/*
 	 * If we have encountered a bitmap-format file, the size limit
-	 * is smaller than s_maxbytes, which is for pxt2tent-mapped files.
+	 * is smaller than s_maxbytes, which is for extent-mapped files.
 	 */
 	if (!(pxt4_test_inode_flag(inode, PXT4_INODE_EXTENTS))) {
 		struct pxt4_sb_info *sbi = PXT4_SB(inode->i_sb);
@@ -476,7 +476,7 @@ static int pxt4_file_open(struct inode * inode, struct file * filp)
 }
 
 /*
- * pxt4_llseek() handles both block-mapped and pxt2tent-mapped maxbytes values
+ * pxt4_llseek() handles both block-mapped and extent-mapped maxbytes values
  * by calling generic_file_llseek_size() with the appropriate maxbytes
  * value for each.
  */

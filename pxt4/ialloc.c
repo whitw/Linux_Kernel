@@ -245,7 +245,7 @@ void pxt4_free_inode(handle_t *handle, struct inode *inode)
 
 	if (!sb) {
 		printk(KERN_ERR "PXT4-fs: %s:%d: inode on "
-		       "nonpxt2istent device\n", __func__, __LINE__);
+		       "nonexistent device\n", __func__, __LINE__);
 		return;
 	}
 	if (atomic_read(&inode->i_count) > 1) {
@@ -275,7 +275,7 @@ void pxt4_free_inode(handle_t *handle, struct inode *inode)
 
 	es = sbi->s_es;
 	if (ino < PXT4_FIRST_INO(sb) || ino > le32_to_cpu(es->s_inodes_count)) {
-		pxt4_error(sb, "reserved or nonpxt2istent inode %lu", ino);
+		pxt4_error(sb, "reserved or nonexistent inode %lu", ino);
 		goto error_return;
 	}
 	block_group = (ino - 1) / PXT4_INODES_PER_GROUP(sb);
@@ -324,11 +324,11 @@ void pxt4_free_inode(handle_t *handle, struct inode *inode)
 	pxt4_unlock_group(sb, block_group);
 
 	percpu_counter_inc(&sbi->s_freeinodes_counter);
-	if (sbi->s_log_groups_per_flpxt2) {
-		struct flpxt2_groups *fg;
+	if (sbi->s_log_groups_per_flex) {
+		struct flex_groups *fg;
 
-		fg = sbi_array_rcu_deref(sbi, s_flpxt2_groups,
-					 pxt4_flpxt2_group(sbi, block_group));
+		fg = sbi_array_rcu_deref(sbi, s_flex_groups,
+					 pxt4_flex_group(sbi, block_group));
 		atomic_inc(&fg->free_inodes);
 		if (is_directory)
 			atomic_dec(&fg->used_dirs);
@@ -360,17 +360,17 @@ struct orlov_stats {
 
 /*
  * Helper function for Orlov's allocator; returns critical information
- * for a particular block group or flpxt2_bg.  If flpxt2_size is 1, then g
- * is a block group number; otherwise it is flpxt2_bg number.
+ * for a particular block group or flex_bg.  If flex_size is 1, then g
+ * is a block group number; otherwise it is flex_bg number.
  */
 static void get_orlov_stats(struct super_block *sb, pxt4_group_t g,
-			    int flpxt2_size, struct orlov_stats *stats)
+			    int flex_size, struct orlov_stats *stats)
 {
 	struct pxt4_group_desc *desc;
 
-	if (flpxt2_size > 1) {
-		struct flpxt2_groups *fg = sbi_array_rcu_deref(PXT4_SB(sb),
-							     s_flpxt2_groups, g);
+	if (flex_size > 1) {
+		struct flex_groups *fg = sbi_array_rcu_deref(PXT4_SB(sb),
+							     s_flex_groups, g);
 		stats->free_inodes = atomic_read(&fg->free_inodes);
 		stats->free_clusters = atomic64_read(&fg->free_clusters);
 		stats->used_dirs = atomic_read(&fg->used_dirs);
@@ -426,14 +426,14 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent,
 	pxt4_group_t i, grp, g, ngroups;
 	struct pxt4_group_desc *desc;
 	struct orlov_stats stats;
-	int flpxt2_size = pxt4_flpxt2_bg_size(sbi);
+	int flex_size = pxt4_flex_bg_size(sbi);
 	struct dx_hash_info hinfo;
 
 	ngroups = real_ngroups;
-	if (flpxt2_size > 1) {
-		ngroups = (real_ngroups + flpxt2_size - 1) >>
-			sbi->s_log_groups_per_flpxt2;
-		parent_group >>= sbi->s_log_groups_per_flpxt2;
+	if (flex_size > 1) {
+		ngroups = (real_ngroups + flex_size - 1) >>
+			sbi->s_log_groups_per_flex;
+		parent_group >>= sbi->s_log_groups_per_flex;
 	}
 
 	freei = percpu_counter_read_positive(&sbi->s_freeinodes_counter);
@@ -460,7 +460,7 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent,
 		parent_group = (unsigned)grp % ngroups;
 		for (i = 0; i < ngroups; i++) {
 			g = (parent_group + i) % ngroups;
-			get_orlov_stats(sb, g, flpxt2_size, &stats);
+			get_orlov_stats(sb, g, flex_size, &stats);
 			if (!stats.free_inodes)
 				continue;
 			if (stats.used_dirs >= best_ndir)
@@ -475,21 +475,21 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent,
 		}
 		if (ret)
 			goto fallback;
-	found_flpxt2_bg:
-		if (flpxt2_size == 1) {
+	found_flex_bg:
+		if (flex_size == 1) {
 			*group = grp;
 			return 0;
 		}
 
 		/*
-		 * We pack inodes at the beginning of the flpxt2group's
+		 * We pack inodes at the beginning of the flexgroup's
 		 * inode tables.  Block allocation decisions will do
 		 * something similar, although regular files will
-		 * start at 2nd block group of the flpxt2group.  See
-		 * pxt4_pxt2t_find_goal() and pxt4_find_near().
+		 * start at 2nd block group of the flexgroup.  See
+		 * pxt4_ext_find_goal() and pxt4_find_near().
 		 */
-		grp *= flpxt2_size;
-		for (i = 0; i < flpxt2_size; i++) {
+		grp *= flex_size;
+		for (i = 0; i < flex_size; i++) {
 			if (grp+i >= real_ngroups)
 				break;
 			desc = pxt4_get_group_desc(sb, grp+i, NULL);
@@ -502,31 +502,31 @@ static int find_group_orlov(struct super_block *sb, struct inode *parent,
 	}
 
 	max_dirs = ndirs / ngroups + inodes_per_group / 16;
-	min_inodes = avefreei - inodes_per_group*flpxt2_size / 4;
+	min_inodes = avefreei - inodes_per_group*flex_size / 4;
 	if (min_inodes < 1)
 		min_inodes = 1;
-	min_clusters = avefreec - PXT4_CLUSTERS_PER_GROUP(sb)*flpxt2_size / 4;
+	min_clusters = avefreec - PXT4_CLUSTERS_PER_GROUP(sb)*flex_size / 4;
 
 	/*
-	 * Start looking in the flpxt2 group where we last allocated an
+	 * Start looking in the flex group where we last allocated an
 	 * inode for this parent directory
 	 */
 	if (PXT4_I(parent)->i_last_alloc_group != ~0) {
 		parent_group = PXT4_I(parent)->i_last_alloc_group;
-		if (flpxt2_size > 1)
-			parent_group >>= sbi->s_log_groups_per_flpxt2;
+		if (flex_size > 1)
+			parent_group >>= sbi->s_log_groups_per_flex;
 	}
 
 	for (i = 0; i < ngroups; i++) {
 		grp = (parent_group + i) % ngroups;
-		get_orlov_stats(sb, grp, flpxt2_size, &stats);
+		get_orlov_stats(sb, grp, flex_size, &stats);
 		if (stats.used_dirs >= max_dirs)
 			continue;
 		if (stats.free_inodes < min_inodes)
 			continue;
 		if (stats.free_clusters < min_clusters)
 			continue;
-		goto found_flpxt2_bg;
+		goto found_flex_bg;
 	}
 
 fallback:
@@ -564,21 +564,21 @@ static int find_group_other(struct super_block *sb, struct inode *parent,
 	pxt4_group_t parent_group = PXT4_I(parent)->i_block_group;
 	pxt4_group_t i, last, ngroups = pxt4_get_groups_count(sb);
 	struct pxt4_group_desc *desc;
-	int flpxt2_size = pxt4_flpxt2_bg_size(PXT4_SB(sb));
+	int flex_size = pxt4_flex_bg_size(PXT4_SB(sb));
 
 	/*
-	 * Try to place the inode is the same flpxt2 group as its
+	 * Try to place the inode is the same flex group as its
 	 * parent.  If we can't find space, use the Orlov algorithm to
-	 * find another flpxt2 group, and store that information in the
-	 * parent directory's inode information so that use that flpxt2
+	 * find another flex group, and store that information in the
+	 * parent directory's inode information so that use that flex
 	 * group for future allocations.
 	 */
-	if (flpxt2_size > 1) {
+	if (flex_size > 1) {
 		int retry = 0;
 
 	try_again:
-		parent_group &= ~(flpxt2_size-1);
-		last = parent_group + flpxt2_size;
+		parent_group &= ~(flex_size-1);
+		last = parent_group + flex_size;
 		if (last > ngroups)
 			last = ngroups;
 		for  (i = parent_group; i < last; i++) {
@@ -595,10 +595,10 @@ static int find_group_other(struct super_block *sb, struct inode *parent,
 		}
 		/*
 		 * If this didn't work, use the Orlov search algorithm
-		 * to find a new flpxt2 group; we pass in the mode to
+		 * to find a new flex group; we pass in the mode to
 		 * avoid the topdir algorithms.
 		 */
-		*group = parent_group + flpxt2_size;
+		*group = parent_group + flex_size;
 		if (*group > ngroups)
 			*group = 0;
 		return find_group_orlov(sb, parent, group, mode, NULL);
@@ -709,8 +709,8 @@ out:
 static int find_inode_bit(struct super_block *sb, pxt4_group_t group,
 			  struct buffer_head *bitmap, unsigned long *ino)
 {
-npxt2t:
-	*ino = pxt4_find_npxt2t_zero_bit((unsigned long *)
+next:
+	*ino = pxt4_find_next_zero_bit((unsigned long *)
 				       bitmap->b_data,
 				       PXT4_INODES_PER_GROUP(sb), *ino);
 	if (*ino >= PXT4_INODES_PER_GROUP(sb))
@@ -720,7 +720,7 @@ npxt2t:
 	    recently_deleted(sb, group, *ino)) {
 		*ino = *ino + 1;
 		if (*ino < PXT4_INODES_PER_GROUP(sb))
-			goto npxt2t;
+			goto next;
 		return 0;
 	}
 
@@ -755,7 +755,7 @@ struct inode *__pxt4_new_inode(handle_t *handle, struct inode *dir,
 	int ret2, err;
 	struct inode *ret;
 	pxt4_group_t i;
-	pxt4_group_t flpxt2_group;
+	pxt4_group_t flex_group;
 	struct pxt4_group_info *grp;
 	int encrypt = 0;
 
@@ -892,12 +892,12 @@ got_group:
 		 * Check free inodes count before loading bitmap.
 		 */
 		if (pxt4_free_inodes_count(sb, gdp) == 0)
-			goto npxt2t_group;
+			goto next_group;
 
 		grp = pxt4_get_group_info(sb, group);
 		/* Skip groups with already-known suspicious inode tables */
 		if (PXT4_MB_GRP_IBITMAP_CORRUPT(grp))
-			goto npxt2t_group;
+			goto next_group;
 
 		brelse(inode_bitmap_bh);
 		inode_bitmap_bh = pxt4_read_inode_bitmap(sb, group);
@@ -905,20 +905,20 @@ got_group:
 		if (PXT4_MB_GRP_IBITMAP_CORRUPT(grp) ||
 		    IS_ERR(inode_bitmap_bh)) {
 			inode_bitmap_bh = NULL;
-			goto npxt2t_group;
+			goto next_group;
 		}
 
 repeat_in_this_group:
 		ret2 = find_inode_bit(sb, group, inode_bitmap_bh, &ino);
 		if (!ret2)
-			goto npxt2t_group;
+			goto next_group;
 
 		if (group == 0 && (ino + 1) < PXT4_FIRST_INO(sb)) {
 			pxt4_error(sb, "reserved inode found cleared - "
 				   "inode=%lu", ino + 1);
 			pxt4_mark_group_bitmap_corrupted(sb, group,
 					PXT4_GROUP_INFO_IBITMAP_CORRUPT);
-			goto npxt2t_group;
+			goto next_group;
 		}
 
 		if (!handle) {
@@ -959,7 +959,7 @@ repeat_in_this_group:
 
 		if (ino < PXT4_INODES_PER_GROUP(sb))
 			goto repeat_in_this_group;
-npxt2t_group:
+next_group:
 		if (++group == ngroups)
 			group = 0;
 	}
@@ -1051,10 +1051,10 @@ got:
 	pxt4_free_inodes_set(sb, gdp, pxt4_free_inodes_count(sb, gdp) - 1);
 	if (S_ISDIR(mode)) {
 		pxt4_used_dirs_set(sb, gdp, pxt4_used_dirs_count(sb, gdp) + 1);
-		if (sbi->s_log_groups_per_flpxt2) {
-			pxt4_group_t f = pxt4_flpxt2_group(sbi, group);
+		if (sbi->s_log_groups_per_flex) {
+			pxt4_group_t f = pxt4_flex_group(sbi, group);
 
-			atomic_inc(&sbi_array_rcu_deref(sbi, s_flpxt2_groups,
+			atomic_inc(&sbi_array_rcu_deref(sbi, s_flex_groups,
 							f)->used_dirs);
 		}
 	}
@@ -1076,10 +1076,10 @@ got:
 	if (S_ISDIR(mode))
 		percpu_counter_inc(&sbi->s_dirs_counter);
 
-	if (sbi->s_log_groups_per_flpxt2) {
-		flpxt2_group = pxt4_flpxt2_group(sbi, group);
-		atomic_dec(&sbi_array_rcu_deref(sbi, s_flpxt2_groups,
-						flpxt2_group)->free_inodes);
+	if (sbi->s_log_groups_per_flex) {
+		flex_group = pxt4_flex_group(sbi, group);
+		atomic_dec(&sbi_array_rcu_deref(sbi, s_flex_groups,
+						flex_group)->free_inodes);
 	}
 
 	inode->i_ino = ino + group * PXT4_INODES_PER_GROUP(sb);
@@ -1092,7 +1092,7 @@ got:
 	ei->i_dir_start_lookup = 0;
 	ei->i_disksize = 0;
 
-	/* Don't inherit pxt2tent flag from directory, amongst others. */
+	/* Don't inherit extent flag from directory, amongst others. */
 	ei->i_flags =
 		pxt4_mask_flags(mode, PXT4_I(dir)->i_flags & PXT4_FL_INHERITED);
 	ei->i_flags |= i_flags;
@@ -1132,7 +1132,7 @@ got:
 	pxt4_clear_state_flags(ei); /* Only relevant on 32-bit archs */
 	pxt4_set_inode_state(inode, PXT4_STATE_NEW);
 
-	ei->i_pxt2tra_isize = sbi->s_want_pxt2tra_isize;
+	ei->i_extra_isize = sbi->s_want_extra_isize;
 	ei->i_inline_off = 0;
 	if (pxt4_has_feature_inline_data(sb))
 		pxt4_set_inode_state(inode, PXT4_STATE_MAY_INLINE_DATA);
@@ -1143,11 +1143,11 @@ got:
 
 	/*
 	 * Since the encryption xattr will always be unique, create it first so
-	 * that it's less likely to end up in an pxt2ternal xattr block and
+	 * that it's less likely to end up in an external xattr block and
 	 * prevent its deduplication.
 	 */
 	if (encrypt) {
-		err = fscrypt_inherit_contpxt2t(dir, inode, handle, true);
+		err = fscrypt_inherit_context(dir, inode, handle, true);
 		if (err)
 			goto fail_free_drop;
 	}
@@ -1162,11 +1162,11 @@ got:
 			goto fail_free_drop;
 	}
 
-	if (pxt4_has_feature_pxt2tents(sb)) {
-		/* set pxt2tent flag only for directory, file and normal symlink*/
+	if (pxt4_has_feature_extents(sb)) {
+		/* set extent flag only for directory, file and normal symlink*/
 		if (S_ISDIR(mode) || S_ISREG(mode) || S_ISLNK(mode)) {
 			pxt4_set_inode_flag(inode, PXT4_INODE_EXTENTS);
-			pxt4_pxt2t_tree_init(handle, inode);
+			pxt4_ext_tree_init(handle, inode);
 		}
 	}
 

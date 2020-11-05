@@ -43,14 +43,14 @@ struct pxt4_getfsmap_info {
 	struct pxt4_fsmap_head	*gfi_head;
 	pxt4_fsmap_format_t	gfi_formatter;	/* formatting fn */
 	void			*gfi_format_arg;/* format buffer */
-	pxt4_fsblk_t		gfi_npxt2t_fsblk;	/* npxt2t fsblock we pxt2pect */
+	pxt4_fsblk_t		gfi_next_fsblk;	/* next fsblock we expect */
 	u32			gfi_dev;	/* device id */
 	pxt4_group_t		gfi_agno;	/* bg number, if applicable */
 	struct pxt4_fsmap	gfi_low;	/* low rmap key */
 	struct pxt4_fsmap	gfi_high;	/* high rmap key */
-	struct pxt4_fsmap	gfi_lastfree;	/* free pxt2t at end of last bg */
+	struct pxt4_fsmap	gfi_lastfree;	/* free ext at end of last bg */
 	struct list_head	gfi_meta_list;	/* fixed metadata list */
-	bool			gfi_last;	/* last pxt2tent? */
+	bool			gfi_last;	/* last extent? */
 };
 
 /* Associate a device with a getfsmap handler. */
@@ -101,14 +101,14 @@ static int pxt4_getfsmap_helper(struct super_block *sb,
 	 */
 	if (pxt4_getfsmap_rec_before_low_key(info, rec)) {
 		rec_fsblk += rec->fmr_length;
-		if (info->gfi_npxt2t_fsblk < rec_fsblk)
-			info->gfi_npxt2t_fsblk = rec_fsblk;
+		if (info->gfi_next_fsblk < rec_fsblk)
+			info->gfi_next_fsblk = rec_fsblk;
 		return PXT4_QUERY_RANGE_CONTINUE;
 	}
 
 	/* Are we just counting mappings? */
 	if (info->gfi_head->fmh_count == 0) {
-		if (rec_fsblk > info->gfi_npxt2t_fsblk)
+		if (rec_fsblk > info->gfi_next_fsblk)
 			info->gfi_head->fmh_entries++;
 
 		if (info->gfi_last)
@@ -117,8 +117,8 @@ static int pxt4_getfsmap_helper(struct super_block *sb,
 		info->gfi_head->fmh_entries++;
 
 		rec_fsblk += rec->fmr_length;
-		if (info->gfi_npxt2t_fsblk < rec_fsblk)
-			info->gfi_npxt2t_fsblk = rec_fsblk;
+		if (info->gfi_next_fsblk < rec_fsblk)
+			info->gfi_next_fsblk = rec_fsblk;
 		return PXT4_QUERY_RANGE_CONTINUE;
 	}
 
@@ -127,21 +127,21 @@ static int pxt4_getfsmap_helper(struct super_block *sb,
 	 * then we've found a gap.  Report the gap as being owned by
 	 * whatever the caller specified is the missing owner.
 	 */
-	if (rec_fsblk > info->gfi_npxt2t_fsblk) {
+	if (rec_fsblk > info->gfi_next_fsblk) {
 		if (info->gfi_head->fmh_entries >= info->gfi_head->fmh_count)
 			return PXT4_QUERY_RANGE_ABORT;
 
-		pxt4_get_group_no_and_offset(sb, info->gfi_npxt2t_fsblk,
+		pxt4_get_group_no_and_offset(sb, info->gfi_next_fsblk,
 				&agno, &cno);
 		trace_pxt4_fsmap_mapping(sb, info->gfi_dev, agno,
 				PXT4_C2B(sbi, cno),
-				rec_fsblk - info->gfi_npxt2t_fsblk,
+				rec_fsblk - info->gfi_next_fsblk,
 				PXT4_FMR_OWN_UNKNOWN);
 
 		fmr.fmr_device = info->gfi_dev;
-		fmr.fmr_physical = info->gfi_npxt2t_fsblk;
+		fmr.fmr_physical = info->gfi_next_fsblk;
 		fmr.fmr_owner = PXT4_FMR_OWN_UNKNOWN;
-		fmr.fmr_length = rec_fsblk - info->gfi_npxt2t_fsblk;
+		fmr.fmr_length = rec_fsblk - info->gfi_next_fsblk;
 		fmr.fmr_flags = FMR_OF_SPECIAL_OWNER;
 		error = info->gfi_formatter(&fmr, info->gfi_format_arg);
 		if (error)
@@ -152,7 +152,7 @@ static int pxt4_getfsmap_helper(struct super_block *sb,
 	if (info->gfi_last)
 		goto out;
 
-	/* Fill out the pxt2tent we found */
+	/* Fill out the extent we found */
 	if (info->gfi_head->fmh_entries >= info->gfi_head->fmh_count)
 		return PXT4_QUERY_RANGE_ABORT;
 
@@ -172,12 +172,12 @@ static int pxt4_getfsmap_helper(struct super_block *sb,
 
 out:
 	rec_fsblk += rec->fmr_length;
-	if (info->gfi_npxt2t_fsblk < rec_fsblk)
-		info->gfi_npxt2t_fsblk = rec_fsblk;
+	if (info->gfi_next_fsblk < rec_fsblk)
+		info->gfi_next_fsblk = rec_fsblk;
 	return PXT4_QUERY_RANGE_CONTINUE;
 }
 
-static inline pxt4_fsblk_t pxt4_fsmap_npxt2t_pblk(struct pxt4_fsmap *fmr)
+static inline pxt4_fsblk_t pxt4_fsmap_next_pblk(struct pxt4_fsmap *fmr)
 {
 	return fmr->fmr_physical + fmr->fmr_length;
 }
@@ -199,17 +199,17 @@ static int pxt4_getfsmap_datadev_helper(struct super_block *sb,
 	fsb = (PXT4_C2B(sbi, start) + pxt4_group_first_block_no(sb, agno));
 	fslen = PXT4_C2B(sbi, len);
 
-	/* If the retained free pxt2tent record is set... */
+	/* If the retained free extent record is set... */
 	if (info->gfi_lastfree.fmr_owner) {
 		/* ...and abuts this one, lengthen it and return. */
-		if (pxt4_fsmap_npxt2t_pblk(&info->gfi_lastfree) == fsb) {
+		if (pxt4_fsmap_next_pblk(&info->gfi_lastfree) == fsb) {
 			info->gfi_lastfree.fmr_length += fslen;
 			return 0;
 		}
 
 		/*
-		 * There's a gap between the two free pxt2tents; emit the
-		 * retained pxt2tent prior to merging the meta_list.
+		 * There's a gap between the two free extents; emit the
+		 * retained extent prior to merging the meta_list.
 		 */
 		error = pxt4_getfsmap_helper(sb, info, &info->gfi_lastfree);
 		if (error)
@@ -217,9 +217,9 @@ static int pxt4_getfsmap_datadev_helper(struct super_block *sb,
 		info->gfi_lastfree.fmr_owner = 0;
 	}
 
-	/* Merge in any relevant pxt2tents from the meta_list */
+	/* Merge in any relevant extents from the meta_list */
 	list_for_each_entry_safe(p, tmp, &info->gfi_meta_list, fmr_list) {
-		if (p->fmr_physical + p->fmr_length <= info->gfi_npxt2t_fsblk) {
+		if (p->fmr_physical + p->fmr_length <= info->gfi_next_fsblk) {
 			list_del(&p->fmr_list);
 			kfree(p);
 		} else if (p->fmr_physical < fsb) {
@@ -238,8 +238,8 @@ static int pxt4_getfsmap_datadev_helper(struct super_block *sb,
 	irec.fmr_owner = PXT4_FMR_OWN_FREE;
 	irec.fmr_flags = 0;
 
-	/* If this is a free pxt2tent at the end of a bg, buffer it. */
-	if (pxt4_fsmap_npxt2t_pblk(&irec) ==
+	/* If this is a free extent at the end of a bg, buffer it. */
+	if (pxt4_fsmap_next_pblk(&irec) ==
 			pxt4_group_first_block_no(sb, agno + 1)) {
 		info->gfi_lastfree = irec;
 		return 0;
@@ -275,7 +275,7 @@ static int pxt4_getfsmap_logdev(struct super_block *sb, struct pxt4_fsmap *keys,
 	if (keys[0].fmr_physical > 0)
 		return 0;
 
-	/* Fabricate an rmap entry for the pxt2ternal log device. */
+	/* Fabricate an rmap entry for the external log device. */
 	irec.fmr_physical = journal->j_blk_offset;
 	irec.fmr_length = journal->j_maxlen;
 	irec.fmr_owner = PXT4_FMR_OWN_LOG;
@@ -366,7 +366,7 @@ static int pxt4_getfsmap_compare(void *priv,
 	return 0;
 }
 
-/* Merge adjacent pxt2tents of fixed metadata. */
+/* Merge adjacent extents of fixed metadata. */
 static void pxt4_getfsmap_merge_fixed_metadata(struct list_head *meta_list)
 {
 	struct pxt4_fsmap *p;
@@ -450,7 +450,7 @@ static int pxt4_getfsmap_find_fixed_metadata(struct super_block *sb,
 	/* Sort the list */
 	list_sort(NULL, meta_list, pxt4_getfsmap_compare);
 
-	/* Merge adjacent pxt2tents */
+	/* Merge adjacent extents */
 	pxt4_getfsmap_merge_fixed_metadata(meta_list);
 
 	return 0;
@@ -486,7 +486,7 @@ static int pxt4_getfsmap_datadev(struct super_block *sb,
 	start_fsb = keys[0].fmr_physical;
 	end_fsb = keys[1].fmr_physical;
 
-	/* Determine first and last group to pxt2amine based on start and end */
+	/* Determine first and last group to examine based on start and end */
 	pxt4_get_group_no_and_offset(sb, start_fsb, &start_ag, &first_cluster);
 	pxt4_get_group_no_and_offset(sb, end_fsb, &end_ag, &last_cluster);
 
@@ -540,13 +540,13 @@ static int pxt4_getfsmap_datadev(struct super_block *sb,
 
 		/*
 		 * Set the bg low key to the start of the bg prior to
-		 * moving on to the npxt2t bg.
+		 * moving on to the next bg.
 		 */
 		if (info->gfi_agno == start_ag)
 			memset(&info->gfi_low, 0, sizeof(info->gfi_low));
 	}
 
-	/* Do we have a retained free pxt2tent? */
+	/* Do we have a retained free extent? */
 	if (info->gfi_lastfree.fmr_owner) {
 		error = pxt4_getfsmap_helper(sb, info, &info->gfi_lastfree);
 		if (error)
@@ -601,11 +601,11 @@ static bool pxt4_getfsmap_check_keys(struct pxt4_fsmap *low_key,
 
 #define PXT4_GETFSMAP_DEVS	2
 /*
- * Get filesystem's pxt2tents as described in head, and format for
+ * Get filesystem's extents as described in head, and format for
  * output.  Calls formatter to fill the user's buffer until all
- * pxt2tents are mapped, until the passed-in head->fmh_count slots have
+ * extents are mapped, until the passed-in head->fmh_count slots have
  * been filled, or until the formatter short-circuits the loop, if it
- * is tracking filled-in pxt2tents on its own.
+ * is tracking filled-in extents on its own.
  *
  * Key to Confusion
  * ----------------
@@ -615,7 +615,7 @@ static bool pxt4_getfsmap_check_keys(struct pxt4_fsmap *low_key,
  * dkeys			-- fmh_keys used to query each device;
  * 				   these are fmh_keys but w/ the low key
  * 				   bumped up by fmr_length.
- * _getfsmap_info.gfi_npxt2t_fsblk-- npxt2t fs block we pxt2pect to see; this
+ * _getfsmap_info.gfi_next_fsblk-- next fs block we expect to see; this
  *				   is how we detect gaps in the fsmap
  *				   records and report them.
  * _getfsmap_info.gfi_low/high	-- per-bg low/high keys computed from
@@ -653,11 +653,11 @@ int pxt4_getfsmap(struct super_block *sb, struct pxt4_fsmap_head *head,
 
 	/*
 	 * To continue where we left off, we allow userspace to use the
-	 * last mapping from a previous call as the low key of the npxt2t.
+	 * last mapping from a previous call as the low key of the next.
 	 * This is identified by a non-zero length in the low key. We
 	 * have to increment the low key in this scenario to ensure we
 	 * don't return the same mapping again, and instead return the
-	 * very npxt2t mapping.
+	 * very next mapping.
 	 *
 	 * Bump the physical offset as there can be no other mapping for
 	 * the same physical block range.
@@ -671,7 +671,7 @@ int pxt4_getfsmap(struct super_block *sb, struct pxt4_fsmap_head *head,
 	if (!pxt4_getfsmap_check_keys(dkeys, &head->fmh_keys[1]))
 		return -EINVAL;
 
-	info.gfi_npxt2t_fsblk = head->fmh_keys[0].fmr_physical +
+	info.gfi_next_fsblk = head->fmh_keys[0].fmr_physical +
 			  head->fmh_keys[0].fmr_length;
 	info.gfi_formatter = formatter;
 	info.gfi_format_arg = arg;
@@ -690,7 +690,7 @@ int pxt4_getfsmap(struct super_block *sb, struct pxt4_fsmap_head *head,
 		/*
 		 * If this device number matches the high key, we have
 		 * to pass the high key to the handler to limit the
-		 * query results.  If the device number pxt2ceeds the
+		 * query results.  If the device number exceeds the
 		 * low key, zero out the low key so that we get
 		 * everything from the beginning.
 		 */
@@ -705,7 +705,7 @@ int pxt4_getfsmap(struct super_block *sb, struct pxt4_fsmap_head *head,
 		error = handlers[i].gfd_fn(sb, dkeys, &info);
 		if (error)
 			break;
-		info.gfi_npxt2t_fsblk = 0;
+		info.gfi_next_fsblk = 0;
 	}
 
 	head->fmh_oflags = FMH_OF_DEV_T;
