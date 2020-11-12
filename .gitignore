@@ -1,0 +1,9 @@
+cscope.out
+tags
+*.o
+*.ko
+*.mod.o
+*.mod.c
+*.symvers
+*/modules.order
+*.mod
