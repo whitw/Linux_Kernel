@@ -65,6 +65,7 @@ void rbtree_test(void)
 	ktime_t tbegin, tend;
 
 	//insert:
+	printk("begin insertion");
 	for(i = 0;i < 3; i++){
 		tbegin = ktime_get();
 		for(j=0;j<do_size[i];j++){
@@ -90,7 +91,7 @@ void rbtree_test(void)
 		tend = ktime_get();
 		printk("search, %d) Time elapsed:%llu", do_size[i], ktime_to_ns(tend - tbegin));
 	}
-	printk("begin search");
+	printk("begin deletion");
 	//delete
 	for(i=0;i < 3;i++){
 		tbegin = ktime_get();
